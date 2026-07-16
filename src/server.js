@@ -55,4 +55,17 @@ app.post("/webhook", async (req, res) => {
 app.get("/", (_, res) => res.send("Agente HondaSur activo 🏍️"));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Servidor en puerto ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Servidor en puerto ${PORT}`);
+  console.log("=== DIAGNÓSTICO DE VARIABLES AL ARRANCAR ===");
+  console.log("WEBHOOK_VERIFY_TOKEN existe?:", process.env.WEBHOOK_VERIFY_TOKEN !== undefined);
+  console.log("WEBHOOK_VERIFY_TOKEN valor:", JSON.stringify(process.env.WEBHOOK_VERIFY_TOKEN));
+  console.log("ANTHROPIC_API_KEY existe?:", process.env.ANTHROPIC_API_KEY !== undefined);
+  console.log("WHATSAPP_ASESOR valor:", JSON.stringify(process.env.WHATSAPP_ASESOR));
+  // Lista los nombres de variables que empiezan con WEBHOOK, WHATSAPP o ANTHROPIC
+  const misVars = Object.keys(process.env).filter(
+    (k) => k.includes("WEBHOOK") || k.includes("WHATSAPP") || k.includes("ANTHROPIC")
+  );
+  console.log("Variables detectadas:", JSON.stringify(misVars));
+  console.log("============================================");
+});
