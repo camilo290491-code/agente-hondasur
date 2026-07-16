@@ -68,6 +68,10 @@ export async function notificarLeadCaliente(telefonoCliente, historial) {
   console.log(resumen);
   console.log("============================================\n");
 
-  // En vivo, descomenta para que te llegue a TU WhatsApp:
-  // await enviarWhatsApp(NOTIFICAR_A, resumen);
+  // Enviar el aviso a TU WhatsApp personal
+  try {
+    await enviarWhatsApp(NOTIFICAR_A, resumen);
+  } catch (err) {
+    console.error("No se pudo enviar el aviso al asesor:", err.message);
+  }
 }
