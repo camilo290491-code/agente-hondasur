@@ -1,0 +1,18 @@
+{
+  "name": "agente-hondasur",
+  "version": "1.0.0",
+  "description": "Agente comercial de WhatsApp para HondaSur (Claude + Node + Supabase)",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "sim": "node src/simulador.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.0",
+    "@supabase/supabase-js": "^2.45.0",
+    "dotenv": "^16.4.0",
+    "express": "^4.19.0"
+  }
+}
