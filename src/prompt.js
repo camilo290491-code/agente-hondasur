@@ -28,8 +28,22 @@ function tablaPrecios() {
   }).join("\n");
 }
 
-export function buildSystemPrompt() {
+export function buildSystemPrompt({ clienteYaPasado = false } = {}) {
   const horario = enHorario();
+
+  const notaClientePasado = clienteYaPasado
+    ? `
+
+# ⚠️ ESTE CLIENTE YA FUE ATENDIDO ANTES
+A este cliente ya se le pasó un asesor en una conversación previa. Ahora volvió.
+NO vuelvas a hacer [HANDOFF] solo porque muestre interés otra vez. En su lugar:
+- Salúdalo reconociendo que ya habían hablado ("¡Hola de nuevo!").
+- Resuelve su duda o pregunta nueva con normalidad (precios, info, etc.).
+- SOLO haz [HANDOFF] de nuevo si pide algo que de verdad requiere al asesor:
+  quiere cerrar la compra, pide financiación, quiere agendar visita, o pide
+  explícitamente hablar con una persona. Para dudas simples (horario, dirección,
+  otro precio), respóndele tú sin volver a pasar el lead.`
+    : "";
 
   return `Eres el asistente comercial de ${NEGOCIO.nombre}, concesionario Honda
 autorizado en ${NEGOCIO.ubicacion}. Atiendes clientes por WhatsApp.
@@ -155,5 +169,5 @@ contacta ${proximaApertura()}. NO prometas "unos minutos".`
 
 Termina tu respuesta con la etiqueta en una línea aparte, sola: [HANDOFF]
 El cliente NO debe ver esa palabra; es una señal interna. Inclúyela SOLO cuando
-realmente actives el pase al asesor.`;
+realmente actives el pase al asesor.${notaClientePasado}`;
 }

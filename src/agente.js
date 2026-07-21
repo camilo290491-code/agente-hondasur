@@ -1,31 +1,46 @@
 // agente.js — Núcleo: recibe un mensaje, responde con Claude, detecta handoff.
 import Anthropic from "@anthropic-ai/sdk";
 import { buildSystemPrompt } from "./prompt.js";
-import { getHistorial, guardarMensaje, marcarHumano, estaEnHumano } from "./memoria.js";
+import {
+  getHistorial,
+  guardarMensaje,
+  marcarHumano,
+  estaEnHumano,
+  contarMensajesTrasHandoff,
+  yaFuePasadoAntes,
+} from "./memoria.js";
 import { notificarLeadCaliente } from "./notificar.js";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-/**
- * Procesa un mensaje entrante de un cliente.
- * @param {string} telefono  número del cliente (id de conversación)
- * @param {string} texto     mensaje del cliente
- * @returns {Promise<{respuesta: string|null, handoff: boolean}>}
- */
+// Recordatorios mientras el cliente está en manos del asesor (dentro de las 12h).
+const RECORDATORIOS = [
+  "¡Gracias por escribir! 🙌 Ya un asesor tiene tus datos y te contactará muy pronto para ayudarte personalmente. Cualquier cosa, aquí sigo.",
+  "En un momento te contacta el asesor que te asigné. 🏍️ Está terminando de organizar tu información para darte la mejor atención.",
+  "Tranquilo, tu solicitud ya está en manos de nuestro equipo y no se ha perdido. Un asesor te escribe lo antes posible. ¡Gracias por la paciencia! 🙏",
+];
+
 export async function procesarMensaje(telefono, texto) {
-  // Si la conversación ya está en manos del humano, el agente NO responde.
+  await guardarMensaje(telefono, "user", texto);
+
+  // Si está en manos del asesor (dentro de 12h): recordatorio amable, no atiende normal.
   if (await estaEnHumano(telefono)) {
-    await guardarMensaje(telefono, "user", texto);
-    return { respuesta: null, handoff: false };
+    const veces = await contarMensajesTrasHandoff(telefono);
+    const idx = Math.min(veces, RECORDATORIOS.length - 1);
+    const recordatorio = RECORDATORIOS[idx];
+    await guardarMensaje(telefono, "assistant", recordatorio);
+    return { respuesta: recordatorio, handoff: false };
   }
 
-  await guardarMensaje(telefono, "user", texto);
   const historial = await getHistorial(telefono);
+
+  // ¿A este cliente ya se le pasó un lead antes? (para no duplicar el pase)
+  const pasadoAntes = await yaFuePasadoAntes(telefono);
 
   const msg = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
     max_tokens: 1024,
-    system: buildSystemPrompt(),
+    system: buildSystemPrompt({ clienteYaPasado: pasadoAntes }),
     messages: historial.map((m) => ({ role: m.rol, content: m.contenido })),
   });
 
@@ -35,12 +50,10 @@ export async function procesarMensaje(telefono, texto) {
     .join("\n")
     .trim();
 
-  // Detección de handoff
   const handoff = respuesta.includes("[HANDOFF]");
   if (handoff) {
     respuesta = respuesta.replace(/\[HANDOFF\]/g, "").trim();
     await marcarHumano(telefono, true);
-    // Incluye el historial completo + la última respuesta del agente para el resumen
     const historialCompleto = [...historial, { rol: "assistant", contenido: respuesta }];
     await notificarLeadCaliente(telefono, historialCompleto);
   }
