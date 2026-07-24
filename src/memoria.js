@@ -30,13 +30,21 @@ export async function guardarMensaje(telefono, rol, contenido) {
 
 export async function getHistorial(telefono, limite = 20) {
   if (USAR_SUPABASE) {
+    // Traemos los MÁS RECIENTES (descending) y luego los invertimos,
+    // porque la API necesita orden cronológico (viejo → nuevo).
+    // Si usáramos ascending + limit, traeríamos los más ANTIGUOS y el agente
+    // nunca vería el mensaje actual del cliente.
     const { data } = await supabase
       .from("mensajes")
-      .select("rol, contenido")
+      .select("rol, contenido, created_at")
       .eq("telefono", telefono)
-      .order("created_at", { ascending: true })
+      .order("created_at", { ascending: false })
       .limit(limite);
-    return data || [];
+    if (!data) return [];
+    return data
+      .slice()
+      .reverse()
+      .map((m) => ({ rol: m.rol, contenido: m.contenido }));
   }
   return getLocal(telefono).mensajes.slice(-limite);
 }
