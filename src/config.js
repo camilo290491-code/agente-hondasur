@@ -40,7 +40,7 @@ export const MODELOS = [
   { modelo: "CB125F 2,0",              precioLista:   7090000, papeles:   600000, total:   7690000, uso: "trabajo",  promo: "", descuento: 0 },
   { modelo: "CB125F 2,0 DLX 2,0",      precioLista:   7250000, papeles:   600000, total:   7850000, uso: "trabajo",  promo: "", descuento: 0 },
   { modelo: "CB125F DLX 2,0 MAX",      precioLista:   7300000, papeles:   600000, total:   7900000, uso: "trabajo",  promo: "", descuento: 0 },
-  { modelo: "XBLADE 160",              precioLista:  10290000, papeles:   760000, total:  11050000, uso: "ciudad",   promo: "", descuento: 0 },
+  { modelo: "XBLADE 160",              precioLista:  10290000, papeles:   760000, total:  11050000, uso: "ciudad",   promo: "", descuento: 200000 },
   { modelo: "CB190 2,0 2CH",           precioLista:  12790000, papeles:   760000, total:  13550000, uso: "mixto",    promo: "", descuento: 0 },
   { modelo: "NX190 2CH",               precioLista:  14690000, papeles:   800000, total:  15490000, uso: "mixto",    promo: "", descuento: 0 },
   { modelo: "DIO SRD 110",             precioLista:   7790000, papeles:   600000, total:   8390000, uso: "ciudad",   promo: "", descuento: 0 },
@@ -67,10 +67,10 @@ export const PROMO_GENERAL = "";
 // Para activar/desactivar cada mes, edita estos valores:
 // ─────────────────────────────────────────────────────────────
 export const CAMPANA = {
-  activa: false,                          // true = campaña en curso; false = apagada
-  codigo: "ACCESORIOS-AGOSTO",            // el código fijo del mes
-  bonoValor: 0,                           // monto del bono en pesos (ej: 100000)
-  instagram: "@hondasurmotos",            // usuario de Instagram a seguir
+  activa: true,                          // true = campaña en curso; false = apagada
+  codigo: "ACCEAGOSTO2026",            // el código fijo del mes
+  bonoValor: 300000,                           // monto del bono en pesos (ej: 100000)
+  instagram: "@honda_sur_motos",            // usuario de Instagram a seguir
   nombreCampana: "campaña de agosto",     // cómo la llama el agente
 };
 
