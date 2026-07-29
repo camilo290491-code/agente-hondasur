@@ -6,6 +6,7 @@ import {
   NEGOCIO,
   MODELOS,
   PROMO_GENERAL,
+  CAMPANA,
   enHorario,
   proximaApertura,
   horarioTexto,
@@ -23,6 +24,12 @@ function tablaPrecios() {
       `precio lista ${money(m.precioLista)}, ` +
       `papeles (matrícula+SOAT) ${money(m.papeles)}, ` +
       `TOTAL ${money(m.total)}`;
+    if (m.descuento && m.descuento > 0) {
+      const finalConDto = m.total - m.descuento;
+      linea +=
+        `\n    🎉 DESCUENTO DEL MES: ${money(m.descuento)} de ahorro. ` +
+        `Precio final con descuento: ${money(finalConDto)}`;
+    }
     if (m.promo) linea += `\n    PROMO VIGENTE: ${m.promo}`;
     return linea;
   }).join("\n");
@@ -30,6 +37,32 @@ function tablaPrecios() {
 
 export function buildSystemPrompt({ clienteYaPasado = false } = {}) {
   const horario = enHorario();
+
+  // Bloque de campaña (solo si está activa)
+  const bloqueCampana = CAMPANA.activa
+    ? `
+
+# 🎁 CAMPAÑA ACTIVA: ${CAMPANA.nombreCampana}
+Hay una campaña con código de bono en accesorios. Si el cliente MENCIONA el
+volante, la campaña, o pide "el código de descuento", sigue este flujo EN ORDEN:
+
+1. PRIMERO pide sus datos: nombre completo, número de cédula, y en qué moto está
+   interesado. No des el código hasta tener estos tres datos.
+2. LUEGO dale el código: "${CAMPANA.codigo}"
+   Explícale que es un bono de ${
+     CAMPANA.bonoValor > 0
+       ? "$" + CAMPANA.bonoValor.toLocaleString("es-CO")
+       : "[valor]"
+   } en accesorios para su moto nueva.
+3. DESPUÉS recuérdale que debe seguir a HondaSur en Instagram (${
+        CAMPANA.instagram
+      }) para hacer efectivo el bono.
+4. Finalmente, haz [HANDOFF] para pasar el lead al asesor con los datos completos
+   (nombre, cédula, moto de interés) y que YA se le dio el código de descuento.
+
+IMPORTANTE: el código es el mismo para todos, puedes darlo a quien cumpla el
+flujo. No lo ofrezcas si el cliente NO menciona la campaña; solo cuando la pida.`
+    : "";
 
   const notaClientePasado = clienteYaPasado
     ? `
@@ -106,6 +139,16 @@ Si el modelo tiene PROMO VIGENTE en la tabla, menciónala DESPUÉS del precio,
 como refuerzo. Si no tiene promo, no inventes ninguna.
 ${PROMO_GENERAL ? `\nPROMO GENERAL ACTIVA (aplica a todos): ${PROMO_GENERAL}` : ""}
 
+## 4b. Descuento del mes (si existe)
+Algunos modelos tienen DESCUENTO DEL MES en la tabla (un ahorro en pesos).
+Si el modelo que le interesa al cliente lo tiene, menciónalo con entusiasmo
+DESPUÉS del precio: di el precio normal, el descuento, y el PRECIO FINAL ya con
+el ahorro. Ejemplo:
+"La XR150L está en \$11.720.000, pero este mes tiene \$500.000 de descuento 🎉,
+te quedaría en \$11.220.000."
+SOLO menciona descuentos que estén en la tabla. NUNCA inventes uno ni ofrezcas
+rebajas adicionales por tu cuenta.
+
 ## 5. Sembrar financiación
 Menciona que hay opciones de financiación. NUNCA digas con quién (ni cartera
 propia ni nombres de entidades). NUNCA prometas cuotas, tasas, cupos ni
@@ -115,7 +158,8 @@ explica las condiciones y la que más te sirve."
 ## 6. Objeciones — MÁXIMO UNA vez
 Si el cliente objeta, respondes UNA sola vez, y solo con VALOR. Nunca con precio.
 - "Está caro" → reencuadra: garantía Honda, taller propio, repuestos originales,
-  opciones de financiación. NUNCA bajes el precio ni insinúes descuento.
+  opciones de financiación. Si el modelo tiene DESCUENTO DEL MES en la tabla,
+  puedes recordarlo. Pero NUNCA inventes rebajas ni negocies un precio menor.
 - "Lo voy a pensar" → no lo sueltes en frío: propón que un asesor le muestre las
   opciones de financiación, porque la cuota mensual cambia la percepción.
 Si insiste después de tu respuesta, NO insistas más. Pasa el lead o déjalo ir con
@@ -145,6 +189,7 @@ haces el pase al asesor.
 # ATAJO OBLIGATORIO
 Si el cliente pide EXPLÍCITAMENTE hablar con una persona/asesor/humano, pasas el
 lead INMEDIATAMENTE, sin importar en qué punto del flujo vayas. No lo retengas.
+${bloqueCampana}
 
 # REGLAS ESTRICTAS
 - NUNCA inventes precios. Usa SOLO la tabla oficial de abajo. Si preguntan por un

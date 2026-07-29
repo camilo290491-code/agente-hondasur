@@ -25,10 +25,12 @@ async function generarResumen(historial) {
 pasarle el lead a un asesor humano. Lee la conversación y extrae SOLO los datos
 clave. Responde EXACTAMENTE en este formato, sin nada más:
 
-Nombre: [nombre del cliente, o "no dio" si no lo dijo]
+Nombre: [nombre del cliente, o "no dio"]
+Cédula: [número de cédula si lo dio, o "no dio"]
 Moto de interés: [modelo específico, o "no definido"]
 Precio ya cotizado: [sí, el total / no]
 Financiación: [preguntó / no preguntó]
+Código de campaña: [si se le dio un código de descuento, ponlo; si no, "no aplica"]
 Intención: [qué quiere hacer: visitar el local, que lo llamen, cuándo, etc.]
 
 Sé breve. No inventes datos que no estén en la conversación. Ignora saludos,
