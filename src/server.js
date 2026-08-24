@@ -8,6 +8,7 @@ import { enviarWhatsApp } from "./whatsapp.js";
 import {
   iniciarEscuchaAprobaciones,
   procesarRespuestaAprobacion,
+  procesarConfirmacionCita,
   manejarEstadoWhatsApp,
   iniciarRecordatoriosCitas,
 } from "./tallernet.js";
@@ -47,7 +48,8 @@ app.post("/webhook", async (req, res) => {
 
     // NUEVO — Botones de aprobación del taller (mensajes tipo "interactive")
     if (mensaje.type === "interactive") {
-      const manejado = await procesarRespuestaAprobacion(mensaje);
+      const manejado = (await procesarRespuestaAprobacion(mensaje)) ||
+                       (await procesarConfirmacionCita(mensaje));
       if (!manejado) {
         // Otro tipo de interacción: tratar el texto del botón como mensaje normal
         const textoBoton =
@@ -63,7 +65,8 @@ app.post("/webhook", async (req, res) => {
 
     // NUEVO — Respuesta a botones de PLANTILLA (llegan como tipo "button")
     if (mensaje.type === "button") {
-      const manejado = await procesarRespuestaAprobacion(mensaje);
+      const manejado = (await procesarRespuestaAprobacion(mensaje)) ||
+                       (await procesarConfirmacionCita(mensaje));
       if (!manejado && mensaje.button?.text) {
         const { respuesta } = await procesarMensaje(mensaje.from, mensaje.button.text);
         if (respuesta) await enviarWhatsApp(mensaje.from, respuesta);
