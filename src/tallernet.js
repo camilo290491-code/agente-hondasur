@@ -62,6 +62,18 @@ export const HERRAMIENTAS_TALLER = [
       required: ["fecha", "hora", "cliente", "servicio_id"],
     },
   },
+  {
+    name: "cancelar_cita_taller",
+    description:
+      "Cancela una cita existente del taller. Úsala cuando el cliente pida cancelar o reprogramar: primero cancela la cita anterior con su número y luego, si aplica, agenda la nueva con agendar_cita_taller.",
+    input_schema: {
+      type: "object",
+      properties: {
+        cita_numero: { type: "number", description: "Número de la cita a cancelar" },
+      },
+      required: ["cita_numero"],
+    },
+  },
 ];
 
 // telefonoWa: el número de WhatsApp del cliente (lo inyecta agente.js automáticamente)
@@ -146,6 +158,15 @@ export async function ejecutarHerramientaTaller(nombre, input, telefonoWa) {
         cita_numero: data.id,
         detalle: `Cita #${data.id} agendada para el ${input.fecha} a las ${input.hora}.`,
       };
+    }
+
+    if (nombre === "cancelar_cita_taller") {
+      const { error } = await taller
+        .from("citas")
+        .update({ estado: "Cancelada" })
+        .eq("id", input.cita_numero);
+      if (error) return { error: error.message };
+      return { ok: true, detalle: "Cita #" + input.cita_numero + " cancelada." };
     }
 
     return { error: "herramienta desconocida: " + nombre };
@@ -276,32 +297,56 @@ async function enviarRecordatoriosPendientes() {
     console.error("[tallernet] error consultando recordatorios:", error.message);
     return;
   }
-  for (const c of data || []) {
-    const hora = c.hora_inicio ? String(c.hora_inicio).slice(0, 5) : "la hora acordada";
-    const e = await enviarWhatsAppPlantilla(
-      c.telefono,
-      process.env.TEMPLATE_RECORDATORIO || "recordatorio_cita",
-      process.env.TEMPLATE_IDIOMA || "es_CO",
-      [c.cliente || "cliente", c.fecha, hora, c.servicios?.nombre || "tu servicio"],
-      [] // sin botones: si el cliente responde, lo atiende el agente normal
-    );
-    if (e.ok) {
-      await taller
-        .from("citas")
-        .update({ recordatorio_enviado_at: new Date().toISOString() })
-        .eq("id", c.id);
-      console.log("[tallernet] recordatorio enviado para cita #" + c.id);
-    } else {
-      console.error("[tallernet] falló recordatorio de cita #" + c.id);
-    }
-  }
+  for (const c of data || []) await enviarRecordatorioCita(c);
+}
+
+async function enviarRecordatorioCita(c) {
+  const hora = c.hora_inicio ? String(c.hora_inicio).slice(0, 5) : "la hora acordada";
+  const params = [c.cliente || "cliente", c.fecha, hora, c.servicios?.nombre || "tu servicio"];
+  const plantilla = process.env.TEMPLATE_RECORDATORIO || "recordatorio_cita";
+  const idioma = process.env.TEMPLATE_IDIOMA || "es_CO";
+
+  // Con botones Confirmar/Reprogramar; si la plantilla aún no los tiene, reintenta sin botones.
+  let e = await enviarWhatsAppPlantilla(c.telefono, plantilla, idioma, params,
+    [`CONF_${c.id}`, `REPRO_${c.id}`]);
+  if (!e.ok) e = await enviarWhatsAppPlantilla(c.telefono, plantilla, idioma, params, []);
+
+  await taller
+    .from("citas")
+    .update(
+      e.ok
+        ? { recordatorio_enviado_at: new Date().toISOString(), recordatorio_solicitado: false }
+        : { recordatorio_solicitado: false }
+    )
+    .eq("id", c.id);
+  console.log("[tallernet] recordatorio cita #" + c.id, e.ok ? "enviado" : "FALLÓ");
+}
+
+// Recordatorios manuales: el botón "Enviar ya" de TallerNet marca la cita y aquí se envía al instante.
+async function enviarRecordatoriosManuales() {
+  if (!taller) return;
+  const { data } = await taller
+    .from("citas")
+    .select("id, cliente, telefono, fecha, hora_inicio, servicios(nombre)")
+    .eq("recordatorio_solicitado", true)
+    .not("telefono", "is", null)
+    .limit(10);
+  for (const c of data || []) await enviarRecordatorioCita(c);
 }
 
 // Llamar UNA VEZ al arrancar: revisa cada 30 minutos.
 export function iniciarRecordatoriosCitas() {
   if (!taller) return;
   enviarRecordatoriosPendientes();
+  enviarRecordatoriosManuales();
   setInterval(enviarRecordatoriosPendientes, 30 * 60 * 1000);
+  setInterval(enviarRecordatoriosManuales, 60 * 1000);
+  taller
+    .channel("recordatorios-manuales")
+    .on("postgres_changes",
+      { event: "UPDATE", schema: "public", table: "citas" },
+      (payload) => { if (payload.new?.recordatorio_solicitado) enviarRecordatoriosManuales(); })
+    .subscribe((s) => console.log("[tallernet] realtime citas:", s));
   console.log("[tallernet] recordatorios de citas activos (envío desde las " + HORA_RECORDATORIO + ":00 Colombia)");
 }
 
@@ -352,6 +397,32 @@ export async function manejarEstadoWhatsApp(status) {
       : { estado: "ERROR", error_detalle: "Reenvío por plantilla falló (¿nombre/idioma de la plantilla?)" }
   ).eq("id", ap.id);
   console.log("[tallernet] aprobación", ap.id, e2.ok ? "reenviada vía plantilla" : "ERROR en plantilla");
+}
+
+// Procesa Confirmar/Reprogramar del recordatorio de cita. Devuelve true si era eso.
+export async function procesarConfirmacionCita(mensaje) {
+  if (!taller) return false;
+  const btnId =
+    mensaje?.interactive?.button_reply?.id || mensaje?.button?.payload;
+  if (!btnId || !/^(CONF|REPRO)_\d+$/.test(btnId)) return false;
+
+  const confirma = btnId.startsWith("CONF_");
+  const id = parseInt(btnId.split("_")[1]);
+  const { data: cita } = await taller.from("citas").select("*").eq("id", id).maybeSingle();
+  if (!cita) return false;
+
+  if (confirma) {
+    await taller.from("citas").update({ confirmada_at: new Date().toISOString() }).eq("id", id);
+    await enviarWhatsApp(mensaje.from,
+      "✅ ¡Gracias! Tu cita #" + id + " quedó confirmada para el " + cita.fecha +
+      (cita.hora_inicio ? " a las " + String(cita.hora_inicio).slice(0,5) : "") + ". Te esperamos.");
+  } else {
+    await enviarWhatsApp(mensaje.from,
+      "Claro, con gusto reprogramamos tu cita #" + id + " del " + cita.fecha +
+      ". Cuéntame qué día y hora te sirven mejor y te muestro la disponibilidad.");
+  }
+  console.log("[tallernet] cita", id, confirma ? "CONFIRMADA" : "pidió reprogramar");
+  return true;
 }
 
 // Procesa el toque de un botón de aprobación. Devuelve true si el mensaje era eso.
