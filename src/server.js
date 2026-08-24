@@ -52,6 +52,16 @@ app.post("/webhook", async (req, res) => {
       return;
     }
 
+    // NUEVO — Respuesta a botones de PLANTILLA (llegan como tipo "button")
+    if (mensaje.type === "button") {
+      const manejado = await procesarRespuestaAprobacion(mensaje);
+      if (!manejado && mensaje.button?.text) {
+        const { respuesta } = await procesarMensaje(mensaje.from, mensaje.button.text);
+        if (respuesta) await enviarWhatsApp(mensaje.from, respuesta);
+      }
+      return;
+    }
+
     if (mensaje.type !== "text") return;
     const telefono = mensaje.from;
     const texto = mensaje.text.body;
