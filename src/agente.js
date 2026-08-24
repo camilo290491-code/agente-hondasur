@@ -10,6 +10,8 @@ import {
   yaFuePasadoAntes,
 } from "./memoria.js";
 import { notificarLeadCaliente } from "./notificar.js";
+// NUEVO — herramientas del taller (citas y tarifario de TallerNet)
+import { HERRAMIENTAS_TALLER, ejecutarHerramientaTaller } from "./tallernet.js";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -33,7 +35,6 @@ function prepararHistorial(historial) {
   let msgs = historial.filter(
     (m) => m && m.contenido && String(m.contenido).trim() !== ""
   );
-
   // 2. Fusionar consecutivos del mismo rol (la API no los acepta separados)
   const fusionado = [];
   for (const m of msgs) {
@@ -44,17 +45,14 @@ function prepararHistorial(historial) {
       fusionado.push({ rol: m.rol, contenido: m.contenido });
     }
   }
-
   // 3. La conversación debe EMPEZAR con el usuario
   while (fusionado.length && fusionado[0].rol !== "user") {
     fusionado.shift();
   }
-
   // 4. La conversación debe TERMINAR con el usuario
   while (fusionado.length && fusionado[fusionado.length - 1].rol !== "user") {
     fusionado.pop();
   }
-
   return fusionado;
 }
 
@@ -86,12 +84,46 @@ export async function procesarMensaje(telefono, texto) {
     mensajesParaAPI = [{ role: "user", content: texto }];
   }
 
-  const msg = await anthropic.messages.create({
+  const parametrosBase = {
     model: "claude-sonnet-4-6",
     max_tokens: 1024,
     system: buildSystemPrompt({ clienteYaPasado: pasadoAntes }),
+    tools: HERRAMIENTAS_TALLER, // NUEVO — Claude puede consultar tarifario, disponibilidad y agendar
+  };
+
+  let msg = await anthropic.messages.create({
+    ...parametrosBase,
     messages: mensajesParaAPI,
   });
+
+  // NUEVO — Ciclo de herramientas: si Claude pide usar una herramienta,
+  // se ejecuta, se le devuelve el resultado, y se le pide la respuesta final.
+  let vueltas = 0;
+  while (msg.stop_reason === "tool_use" && vueltas < 5) {
+    const usosDeHerramienta = msg.content.filter((b) => b.type === "tool_use");
+
+    // El turno del asistente (con sus llamadas) entra al historial de la API
+    mensajesParaAPI.push({ role: "assistant", content: msg.content });
+
+    // Ejecutar cada herramienta y devolver los resultados
+    const resultados = [];
+    for (const uso of usosDeHerramienta) {
+      const salida = await ejecutarHerramientaTaller(uso.name, uso.input, telefono);
+      console.log("[herramienta]", uso.name, JSON.stringify(salida).slice(0, 200));
+      resultados.push({
+        type: "tool_result",
+        tool_use_id: uso.id,
+        content: JSON.stringify(salida),
+      });
+    }
+    mensajesParaAPI.push({ role: "user", content: resultados });
+
+    msg = await anthropic.messages.create({
+      ...parametrosBase,
+      messages: mensajesParaAPI,
+    });
+    vueltas++;
+  }
 
   let respuesta = msg.content
     .filter((b) => b.type === "text")
