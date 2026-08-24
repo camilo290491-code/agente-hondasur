@@ -9,6 +9,7 @@ import {
   iniciarEscuchaAprobaciones,
   procesarRespuestaAprobacion,
   manejarEstadoWhatsApp,
+  iniciarRecordatoriosCitas,
 } from "./tallernet.js";
 
 const app = express();
@@ -86,5 +87,6 @@ app.get("/", (_, res) => res.send("Agente HondaSur activo 🏍️"));
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Servidor en puerto ${PORT}`);
-  iniciarEscuchaAprobaciones(); // NUEVO — detecta cotizaciones creadas en TallerNet
+  iniciarEscuchaAprobaciones(); // detecta cotizaciones creadas en TallerNet
+  iniciarRecordatoriosCitas();  // NUEVO — recordatorio de cita el día anterior
 });
