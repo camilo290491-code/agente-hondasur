@@ -1,7 +1,7 @@
 // tallernet.js — Integración del agente con TallerNet (citas + aprobaciones).
 // Requiere en Railway: TALLERNET_URL y TALLERNET_SERVICE_KEY (la sb_secret_ de TallerNet).
 import { createClient } from "@supabase/supabase-js";
-import { enviarWhatsApp, enviarWhatsAppBotones } from "./whatsapp.js";
+import { enviarWhatsApp, enviarWhatsAppBotones, enviarWhatsAppPlantilla } from "./whatsapp.js";
 
 const TALLERNET_URL = process.env.TALLERNET_URL;
 const TALLERNET_KEY = process.env.TALLERNET_SERVICE_KEY;
@@ -82,7 +82,7 @@ export async function ejecutarHerramientaTaller(nombre, input, telefonoWa) {
     if (nombre === "consultar_disponibilidad_taller") {
       const { data, error } = await taller
         .from("citas")
-        .select("servicio_id, servicios(tiempo_est_horas)")
+        .select("hora_inicio, servicio_id, servicios(tiempo_est_horas)")
         .eq("fecha", input.fecha)
         .neq("estado", "Cancelada");
       if (error) return { error: error.message };
@@ -91,11 +91,38 @@ export async function ejecutarHerramientaTaller(nombre, input, telefonoWa) {
         0
       );
       const libres = Math.max(0, HORAS_AGENDABLES_DIA - ocupadas);
+
+      // Horarios sugeridos: jornada 8:00–17:00, propone inicios cada 30 min
+      // donde quepa al menos 1 hora sin chocar con citas ya agendadas.
+      const aMin = (h) => {
+        const [hh, mm] = String(h).split(":").map(Number);
+        return hh * 60 + (mm || 0);
+      };
+      const ocupados = (data || [])
+        .filter((c) => c.hora_inicio)
+        .map((c) => {
+          const ini = aMin(c.hora_inicio);
+          const dur = Number(c.servicios?.tiempo_est_horas || 1) * 60;
+          return [ini, ini + dur];
+        });
+      const sugeridos = [];
+      for (let t = 8 * 60; t <= 16 * 60 && sugeridos.length < 8; t += 30) {
+        const fin = t + 60;
+        const choca = ocupados.some(([a, b]) => t < b && fin > a);
+        if (!choca) {
+          sugeridos.push(
+            String(Math.floor(t / 60)).padStart(2, "0") + ":" +
+            String(t % 60).padStart(2, "0")
+          );
+        }
+      }
       return {
         fecha: input.fecha,
         horas_ocupadas: ocupadas,
         horas_libres: libres,
-        hay_espacio: libres > 0,
+        hay_espacio: libres > 0 && sugeridos.length > 0,
+        horarios_disponibles: sugeridos,
+        nota: "Ofrécele al cliente 3 o 4 de estos horarios para que elija.",
       };
     }
 
@@ -142,20 +169,43 @@ async function enviarAprobacion(ap) {
     `\n*Total: ${cop(ap.total)}*\n\n` +
     `¿Autorizas la reparación?`;
 
-  const ok = await enviarWhatsAppBotones(ap.telefono, cuerpo, [
+  let ok = await enviarWhatsAppBotones(ap.telefono, cuerpo, [
     { id: `APR_${ap.id}`, titulo: "✅ Aprobar" },
     { id: `RECH_${ap.id}`, titulo: "❌ Rechazar" },
   ]);
+  let via = "botones";
+
+  // Si el envío directo falla (cliente sin conversación en las últimas 24h),
+  // se intenta con la PLANTILLA aprobada por Meta (funciona con cualquier cliente).
+  if (!ok) {
+    const resumen = (
+      `Mano de obra ${cop(ap.mano_obra)}` +
+      ((ap.items || []).length
+        ? ` | Repuestos: ` +
+          ap.items.map((it) => `${it.nombre} x${it.cant} ${cop(it.cant * it.precio)}`).join(", ")
+        : "") +
+      ` | Total ${cop(ap.total)}`
+    ).replace(/\s+/g, " ").slice(0, 900); // las plantillas no aceptan saltos de línea
+
+    ok = await enviarWhatsAppPlantilla(
+      ap.telefono,
+      process.env.TEMPLATE_APROBACION || "aprobacion_taller",
+      "es",
+      [resumen],
+      [`APR_${ap.id}`, `RECH_${ap.id}`]
+    );
+    via = "plantilla";
+  }
 
   await taller
     .from("aprobaciones")
     .update(
       ok
         ? { estado: "ENVIADA", enviada_at: new Date().toISOString() }
-        : { estado: "ERROR", error_detalle: "Fallo el envío por WhatsApp (revisa logs)" }
+        : { estado: "ERROR", error_detalle: "Falló el envío directo y por plantilla (¿plantilla aprobada en Meta?)" }
     )
     .eq("id", ap.id);
-  console.log("[tallernet] aprobación", ap.id, ok ? "enviada" : "ERROR");
+  console.log("[tallernet] aprobación", ap.id, ok ? "enviada vía " + via : "ERROR");
 }
 
 // Llamar UNA VEZ al arrancar el servidor.
@@ -188,7 +238,8 @@ export function iniciarEscuchaAprobaciones() {
 // Procesa el toque de un botón de aprobación. Devuelve true si el mensaje era eso.
 export async function procesarRespuestaAprobacion(mensaje) {
   if (!taller) return false;
-  const btnId = mensaje?.interactive?.button_reply?.id;
+  const btnId =
+    mensaje?.interactive?.button_reply?.id || mensaje?.button?.payload;
   if (!btnId || !/^(APR|RECH)_\d+$/.test(btnId)) return false;
 
   const aprobado = btnId.startsWith("APR_");
