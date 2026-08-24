@@ -8,6 +8,7 @@ import { enviarWhatsApp } from "./whatsapp.js";
 import {
   iniciarEscuchaAprobaciones,
   procesarRespuestaAprobacion,
+  manejarEstadoWhatsApp,
 } from "./tallernet.js";
 
 const app = express();
@@ -33,6 +34,13 @@ app.post("/webhook", async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
     const change = entry?.changes?.[0];
+
+    // NUEVO — Avisos de estado de entrega (aquí llega el "failed" de la ventana 24h)
+    const estados = change?.value?.statuses;
+    if (estados && estados.length) {
+      for (const s of estados) await manejarEstadoWhatsApp(s);
+    }
+
     const mensaje = change?.value?.messages?.[0];
     if (!mensaje) return;
 
