@@ -99,7 +99,9 @@ export async function procesarMensaje(telefono, texto) {
       buildSystemPrompt({ clienteYaPasado: pasadoAntes }) +
       `\n\nFECHA Y HORA ACTUAL (Colombia): ${ahoraCol}. En formato YYYY-MM-DD, hoy es ${fechaISO}. ` +
       `Usa esta fecha para interpretar "hoy", "mañana", "el viernes", etc. al agendar citas. ` +
-      `Al proponer una cita, consulta primero la disponibilidad y ofrécele al cliente los horarios disponibles que devuelve la herramienta.`,
+      `Al proponer una cita, consulta primero la disponibilidad y ofrécele al cliente los horarios disponibles que devuelve la herramienta. ` +
+      `REGLA DEL TALLER: HondaSur atiende ÚNICAMENTE motos marca Honda. Antes de agendar, confirma la marca de la moto; ` +
+      `si es de otra marca, informa con amabilidad que el taller solo atiende Honda y NO agendes la cita.`,
     tools: HERRAMIENTAS_TALLER, // Claude puede consultar tarifario, disponibilidad y agendar
   };
 
