@@ -67,3 +67,51 @@ export async function enviarWhatsAppBotones(para, texto, botones) {
   }
   return res.ok;
 }
+
+// NUEVO — Envío por PLANTILLA aprobada en Meta (llega a cualquier cliente,
+// aunque no haya escrito en las últimas 24 horas).
+// bodyParams: textos para las variables {{1}}, {{2}}... (sin saltos de línea)
+// botonesPayload: payloads de los botones de respuesta rápida, en orden.
+export async function enviarWhatsAppPlantilla(para, plantilla, idioma, bodyParams, botonesPayload) {
+  if (!TOKEN || !PHONE_ID) {
+    console.log(`[SIM] (sin credenciales) Enviaría plantilla "${plantilla}" a ${para}: ${bodyParams.join(" | ")}`);
+    return true;
+  }
+  const componentes = [];
+  if (bodyParams && bodyParams.length) {
+    componentes.push({
+      type: "body",
+      parameters: bodyParams.map((t) => ({ type: "text", text: String(t) })),
+    });
+  }
+  (botonesPayload || []).forEach((payload, i) => {
+    componentes.push({
+      type: "button",
+      sub_type: "quick_reply",
+      index: String(i),
+      parameters: [{ type: "payload", payload }],
+    });
+  });
+  const url = `https://graph.facebook.com/v21.0/${PHONE_ID}/messages`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to: String(para).replace(/\D/g, ""),
+      type: "template",
+      template: {
+        name: plantilla,
+        language: { code: idioma },
+        components: componentes,
+      },
+    }),
+  });
+  if (!res.ok) {
+    console.error("Error enviando plantilla:", await res.text());
+  }
+  return res.ok;
+}
