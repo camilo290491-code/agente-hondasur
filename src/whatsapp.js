@@ -37,7 +37,7 @@ export async function enviarWhatsAppBotones(para, texto, botones) {
         .map((b) => b.titulo)
         .join(" | ")}]: ${texto}`
     );
-    return true; // en simulación se considera enviado
+    return { ok: true, id: "sim" }; // en simulación se considera enviado
   }
   const url = `https://graph.facebook.com/v21.0/${PHONE_ID}/messages`;
   const res = await fetch(url, {
@@ -62,10 +62,12 @@ export async function enviarWhatsAppBotones(para, texto, botones) {
       },
     }),
   });
+  const json = await res.json().catch(() => ({}));
   if (!res.ok) {
-    console.error("Error enviando WhatsApp con botones:", await res.text());
+    console.error("Error enviando WhatsApp con botones:", JSON.stringify(json));
+    return { ok: false, id: null };
   }
-  return res.ok;
+  return { ok: true, id: json.messages?.[0]?.id || null };
 }
 
 // NUEVO — Envío por PLANTILLA aprobada en Meta (llega a cualquier cliente,
@@ -75,7 +77,7 @@ export async function enviarWhatsAppBotones(para, texto, botones) {
 export async function enviarWhatsAppPlantilla(para, plantilla, idioma, bodyParams, botonesPayload) {
   if (!TOKEN || !PHONE_ID) {
     console.log(`[SIM] (sin credenciales) Enviaría plantilla "${plantilla}" a ${para}: ${bodyParams.join(" | ")}`);
-    return true;
+    return { ok: true, id: "sim" };
   }
   const componentes = [];
   if (bodyParams && bodyParams.length) {
@@ -110,8 +112,10 @@ export async function enviarWhatsAppPlantilla(para, plantilla, idioma, bodyParam
       },
     }),
   });
+  const json = await res.json().catch(() => ({}));
   if (!res.ok) {
-    console.error("Error enviando plantilla:", await res.text());
+    console.error("Error enviando plantilla:", JSON.stringify(json));
+    return { ok: false, id: null };
   }
-  return res.ok;
+  return { ok: true, id: json.messages?.[0]?.id || null };
 }
