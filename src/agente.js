@@ -84,11 +84,23 @@ export async function procesarMensaje(telefono, texto) {
     mensajesParaAPI = [{ role: "user", content: texto }];
   }
 
+  // NUEVO — Fecha y hora actuales de Colombia, para que el agente sepa "hoy", "mañana", etc.
+  const ahoraCol = new Date().toLocaleString("es-CO", {
+    timeZone: "America/Bogota",
+    weekday: "long", year: "numeric", month: "long", day: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  });
+  const fechaISO = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
+
   const parametrosBase = {
     model: "claude-sonnet-4-6",
     max_tokens: 1024,
-    system: buildSystemPrompt({ clienteYaPasado: pasadoAntes }),
-    tools: HERRAMIENTAS_TALLER, // NUEVO — Claude puede consultar tarifario, disponibilidad y agendar
+    system:
+      buildSystemPrompt({ clienteYaPasado: pasadoAntes }) +
+      `\n\nFECHA Y HORA ACTUAL (Colombia): ${ahoraCol}. En formato YYYY-MM-DD, hoy es ${fechaISO}. ` +
+      `Usa esta fecha para interpretar "hoy", "mañana", "el viernes", etc. al agendar citas. ` +
+      `Al proponer una cita, consulta primero la disponibilidad y ofrécele al cliente los horarios disponibles que devuelve la herramienta.`,
+    tools: HERRAMIENTAS_TALLER, // Claude puede consultar tarifario, disponibilidad y agendar
   };
 
   let msg = await anthropic.messages.create({
