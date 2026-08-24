@@ -169,14 +169,16 @@ async function enviarAprobacion(ap) {
     `\n*Total: ${cop(ap.total)}*\n\n` +
     `¿Autorizas la reparación?`;
 
-  let ok = await enviarWhatsAppBotones(ap.telefono, cuerpo, [
+  let envio = await enviarWhatsAppBotones(ap.telefono, cuerpo, [
     { id: `APR_${ap.id}`, titulo: "✅ Aprobar" },
     { id: `RECH_${ap.id}`, titulo: "❌ Rechazar" },
   ]);
+  let ok = envio.ok, msgId = envio.id;
   let via = "botones";
 
-  // Si el envío directo falla (cliente sin conversación en las últimas 24h),
-  // se intenta con la PLANTILLA aprobada por Meta (funciona con cualquier cliente).
+  // Si el envío directo falla de inmediato, se intenta con la PLANTILLA aprobada
+  // por Meta. OJO: el fallo por ventana de 24h NO llega aquí sino después, como
+  // "status failed" al webhook — eso lo maneja manejarEstadoWhatsApp más abajo.
   if (!ok) {
     const resumen = (
       `Mano de obra ${cop(ap.mano_obra)}` +
@@ -187,13 +189,14 @@ async function enviarAprobacion(ap) {
       ` | Total ${cop(ap.total)}`
     ).replace(/\s+/g, " ").slice(0, 900); // las plantillas no aceptan saltos de línea
 
-    ok = await enviarWhatsAppPlantilla(
+    const e2 = await enviarWhatsAppPlantilla(
       ap.telefono,
       process.env.TEMPLATE_APROBACION || "aprobacion_taller",
-      "es",
+      process.env.TEMPLATE_IDIOMA || "es_CO",
       [resumen],
       [`APR_${ap.id}`, `RECH_${ap.id}`]
     );
+    ok = e2.ok; msgId = e2.id;
     via = "plantilla";
   }
 
@@ -201,7 +204,8 @@ async function enviarAprobacion(ap) {
     .from("aprobaciones")
     .update(
       ok
-        ? { estado: "ENVIADA", enviada_at: new Date().toISOString() }
+        ? { estado: "ENVIADA", enviada_at: new Date().toISOString(),
+            wa_message_id: msgId, error_detalle: "via=" + via }
         : { estado: "ERROR", error_detalle: "Falló el envío directo y por plantilla (¿plantilla aprobada en Meta?)" }
     )
     .eq("id", ap.id);
@@ -233,6 +237,55 @@ export function iniciarEscuchaAprobaciones() {
     for (const ap of data || []) await enviarAprobacion(ap);
   }, 120000);
   console.log("[tallernet] escucha de aprobaciones activa");
+}
+
+// Maneja los avisos de estado de WhatsApp. Si un envío de aprobación FALLÓ
+// (típico: cliente fuera de la ventana de 24h), reenvía por PLANTILLA.
+export async function manejarEstadoWhatsApp(status) {
+  if (!taller) return;
+  if (status?.status !== "failed" || !status?.id) return;
+
+  const { data: ap } = await taller
+    .from("aprobaciones")
+    .select("*")
+    .eq("wa_message_id", status.id)
+    .maybeSingle();
+  if (!ap || ap.estado !== "ENVIADA") return;
+
+  // Si ya fue por plantilla y aun así falló, es error definitivo.
+  if ((ap.error_detalle || "").includes("via=plantilla")) {
+    await taller.from("aprobaciones").update({
+      estado: "ERROR",
+      error_detalle: "La plantilla tampoco se entregó: " +
+        JSON.stringify(status.errors || []).slice(0, 400),
+    }).eq("id", ap.id);
+    console.error("[tallernet] aprobación", ap.id, "falló también por plantilla");
+    return;
+  }
+
+  console.log("[tallernet] entrega directa falló para aprobación", ap.id, "→ reenviando por plantilla");
+  const resumen = (
+    `Mano de obra ${cop(ap.mano_obra)}` +
+    ((ap.items || []).length
+      ? ` | Repuestos: ` +
+        ap.items.map((it) => `${it.nombre} x${it.cant} ${cop(it.cant * it.precio)}`).join(", ")
+      : "") +
+    ` | Total ${cop(ap.total)}`
+  ).replace(/\s+/g, " ").slice(0, 900);
+
+  const e2 = await enviarWhatsAppPlantilla(
+    ap.telefono,
+    process.env.TEMPLATE_APROBACION || "aprobacion_taller",
+    process.env.TEMPLATE_IDIOMA || "es_CO",
+    [resumen],
+    [`APR_${ap.id}`, `RECH_${ap.id}`]
+  );
+  await taller.from("aprobaciones").update(
+    e2.ok
+      ? { wa_message_id: e2.id, error_detalle: "via=plantilla", enviada_at: new Date().toISOString() }
+      : { estado: "ERROR", error_detalle: "Reenvío por plantilla falló (¿nombre/idioma de la plantilla?)" }
+  ).eq("id", ap.id);
+  console.log("[tallernet] aprobación", ap.id, e2.ok ? "reenviada vía plantilla" : "ERROR en plantilla");
 }
 
 // Procesa el toque de un botón de aprobación. Devuelve true si el mensaje era eso.
