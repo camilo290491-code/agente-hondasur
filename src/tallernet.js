@@ -239,6 +239,72 @@ export function iniciarEscuchaAprobaciones() {
   console.log("[tallernet] escucha de aprobaciones activa");
 }
 
+// ============================================================
+// PARTE 3 — Recordatorios de cita (día anterior, ~5 pm Colombia)
+// Requiere plantilla aprobada en Meta: "recordatorio_cita" con 4 variables.
+// ============================================================
+
+const HORA_RECORDATORIO = 17; // 5 pm hora Colombia
+
+function fechaColombia(offsetDias = 0) {
+  const d = new Date(Date.now() + offsetDias * 86400000);
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(d);
+}
+function horaColombia() {
+  return Number(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Bogota",
+      hour: "numeric",
+      hour12: false,
+    }).format(new Date())
+  );
+}
+
+async function enviarRecordatoriosPendientes() {
+  if (!taller) return;
+  if (horaColombia() < HORA_RECORDATORIO) return; // solo desde las 5 pm
+
+  const manana = fechaColombia(1);
+  const { data, error } = await taller
+    .from("citas")
+    .select("id, cliente, telefono, fecha, hora_inicio, servicios(nombre)")
+    .eq("fecha", manana)
+    .eq("estado", "Agendada")
+    .is("recordatorio_enviado_at", null)
+    .not("telefono", "is", null);
+  if (error) {
+    console.error("[tallernet] error consultando recordatorios:", error.message);
+    return;
+  }
+  for (const c of data || []) {
+    const hora = c.hora_inicio ? String(c.hora_inicio).slice(0, 5) : "la hora acordada";
+    const e = await enviarWhatsAppPlantilla(
+      c.telefono,
+      process.env.TEMPLATE_RECORDATORIO || "recordatorio_cita",
+      process.env.TEMPLATE_IDIOMA || "es_CO",
+      [c.cliente || "cliente", c.fecha, hora, c.servicios?.nombre || "tu servicio"],
+      [] // sin botones: si el cliente responde, lo atiende el agente normal
+    );
+    if (e.ok) {
+      await taller
+        .from("citas")
+        .update({ recordatorio_enviado_at: new Date().toISOString() })
+        .eq("id", c.id);
+      console.log("[tallernet] recordatorio enviado para cita #" + c.id);
+    } else {
+      console.error("[tallernet] falló recordatorio de cita #" + c.id);
+    }
+  }
+}
+
+// Llamar UNA VEZ al arrancar: revisa cada 30 minutos.
+export function iniciarRecordatoriosCitas() {
+  if (!taller) return;
+  enviarRecordatoriosPendientes();
+  setInterval(enviarRecordatoriosPendientes, 30 * 60 * 1000);
+  console.log("[tallernet] recordatorios de citas activos (envío desde las " + HORA_RECORDATORIO + ":00 Colombia)");
+}
+
 // Maneja los avisos de estado de WhatsApp. Si un envío de aprobación FALLÓ
 // (típico: cliente fuera de la ventana de 24h), reenvía por PLANTILLA.
 export async function manejarEstadoWhatsApp(status) {
