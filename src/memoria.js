@@ -32,8 +32,6 @@ export async function getHistorial(telefono, limite = 20) {
   if (USAR_SUPABASE) {
     // Traemos los MÁS RECIENTES (descending) y luego los invertimos,
     // porque la API necesita orden cronológico (viejo → nuevo).
-    // Si usáramos ascending + limit, traeríamos los más ANTIGUOS y el agente
-    // nunca vería el mensaje actual del cliente.
     const { data } = await supabase
       .from("mensajes")
       .select("rol, contenido, created_at")
@@ -73,16 +71,14 @@ export async function estaEnHumano(telefono) {
       .from("conversaciones")
       .select("requiere_humano, actualizado")
       .eq("telefono", telefono)
-      .single();
+      .maybeSingle();
 
     if (!data || !data.requiere_humano) return false;
 
-    // ¿Cuánto tiempo lleva en manos del asesor?
     const marcadoDesde = new Date(data.actualizado);
     const horas = (Date.now() - marcadoDesde.getTime()) / (1000 * 60 * 60);
 
     if (horas >= HORAS_HANDOFF) {
-      // Venció la ventana: liberar al cliente para que el bot retome
       await supabase
         .from("conversaciones")
         .update({ requiere_humano: false, actualizado: new Date() })
@@ -92,7 +88,6 @@ export async function estaEnHumano(telefono) {
     return true;
   }
 
-  // Modo local (simulación)
   const l = getLocal(telefono);
   if (!l.humano) return false;
   if (!l.desde) return true;
@@ -106,51 +101,90 @@ export async function estaEnHumano(telefono) {
 }
 
 /**
- * Cuenta cuántos mensajes ha enviado el cliente DESPUÉS de ser pasado al asesor.
- * Sirve para variar el recordatorio y no sonar repetitivo.
- * Cuenta los mensajes del cliente ('user') desde la última vez que se marcó handoff.
+ * NUEVO — ¿El chat está bajo CONTROL HUMANO desde el panel?
+ * A diferencia del pase al asesor, esta bandera no vence sola:
+ * se activa y desactiva con los botones del Centro de Chats.
+ * Mientras esté activa, el bot guarda lo que el cliente escribe pero NO responde.
  */
-export async function contarMensajesTrasHandoff(telefono) {
+export async function estaBajoControlHumano(telefono) {
   if (USAR_SUPABASE) {
-    // Momento en que se marcó el handoff
-    const { data: conv } = await supabase
+    const { data } = await supabase
       .from("conversaciones")
-      .select("actualizado")
+      .select("control_humano")
       .eq("telefono", telefono)
-      .single();
-    if (!conv) return 0;
-
-    // Cuenta mensajes del cliente después de esa marca (menos el actual)
-    const { count } = await supabase
-      .from("mensajes")
-      .select("*", { count: "exact", head: true })
-      .eq("telefono", telefono)
-      .eq("rol", "user")
-      .gt("created_at", conv.actualizado);
-    return Math.max(0, (count || 1) - 1);
+      .maybeSingle();
+    return !!(data && data.control_humano);
   }
-
-  // Modo local: cuenta aproximada por los mensajes guardados tras 'desde'
-  const l = getLocal(telefono);
-  if (!l.desde) return 0;
-  return Math.max(0, (l._recordatorios || 0));
+  return false;
 }
 
 /**
  * ¿A este cliente se le pasó un lead al asesor ALGUNA vez?
- * Se usa para que, cuando el bot retoma tras las 12h, sepa que ya hubo un pase
- * y no vuelva a molestar al asesor salvo que el cliente pida algo nuevo.
- * Detecta si existe un registro de conversación (que solo se crea al hacer handoff).
+ * Ajustado: la señal es que exista la marca de tiempo del handoff (actualizado),
+ * porque el panel de chats también puede crear filas en conversaciones
+ * (para el control humano) sin que haya habido pase al asesor.
  */
 export async function yaFuePasadoAntes(telefono) {
   if (USAR_SUPABASE) {
     const { data } = await supabase
       .from("conversaciones")
-      .select("telefono")
+      .select("actualizado")
       .eq("telefono", telefono)
       .maybeSingle();
-    return !!data; // si existe registro, es que hubo handoff antes
+    return !!(data && data.actualizado);
   }
   const l = getLocal(telefono);
   return l._huboHandoff === true;
+}
+
+/**
+ * NUEVO — Despacho de mensajes manuales escritos en el Centro de Chats.
+ * El panel inserta en la tabla `salientes`; aquí se detectan (tiempo real +
+ * chequeo cada 15 s) y se envían por WhatsApp con la función que reciba.
+ * Llamar una vez al arrancar: iniciarEnvioManual(enviarWhatsApp)
+ */
+export function iniciarEnvioManual(enviarFn) {
+  if (!USAR_SUPABASE) return;
+
+  async function despachar() {
+    const { data } = await supabase
+      .from("salientes")
+      .select("*")
+      .eq("estado", "POR ENVIAR")
+      .order("created_at", { ascending: true })
+      .limit(10);
+    for (const s of data || []) {
+      const ok = await enviarFn(s.telefono, s.contenido);
+      await supabase
+        .from("salientes")
+        .update(
+          ok !== false
+            ? { estado: "ENVIADO", enviado_at: new Date().toISOString() }
+            : { estado: "ERROR" }
+        )
+        .eq("id", s.id);
+      if (ok !== false) {
+        // Queda en el historial como mensaje del taller
+        await supabase.from("mensajes").insert({
+          telefono: s.telefono,
+          rol: "assistant",
+          contenido: s.contenido,
+        });
+      }
+      console.log("[chats] manual →", s.telefono, ok !== false ? "enviado" : "ERROR");
+    }
+  }
+
+  supabase
+    .channel("salientes-nuevos")
+    .on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "salientes" },
+      () => despachar()
+    )
+    .subscribe((s) => console.log("[chats] realtime salientes:", s));
+
+  despachar();
+  setInterval(despachar, 15000);
+  console.log("[chats] envío manual desde el panel activo");
 }
