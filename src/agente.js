@@ -6,6 +6,7 @@ import {
   guardarMensaje,
   marcarHumano,
   estaEnHumano,
+  estaBajoControlHumano,
   yaFuePasadoAntes,
 } from "./memoria.js";
 import { notificarLeadCaliente } from "./notificar.js";
@@ -50,6 +51,12 @@ function prepararHistorial(historial) {
 
 export async function procesarMensaje(telefono, texto) {
   await guardarMensaje(telefono, "user", texto);
+
+  // NUEVO — Si el chat está bajo control humano desde el panel, el bot calla:
+  // el mensaje queda guardado y visible en el Centro de Chats, y respondes tú.
+  if (await estaBajoControlHumano(telefono)) {
+    return { respuesta: null, handoff: false };
+  }
 
   // Si está en manos del asesor (dentro de 12h): el agente SIGUE atendiendo
   // (taller, citas, preguntas generales), pero sin gestionar la venta de la moto.
