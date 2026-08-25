@@ -4,6 +4,7 @@ import express from "express";
 import "dotenv/config";
 import { procesarMensaje } from "./agente.js";
 import { enviarWhatsApp } from "./whatsapp.js";
+import { iniciarEnvioManual } from "./memoria.js";
 // NUEVO — integración TallerNet
 import {
   iniciarEscuchaAprobaciones,
@@ -91,5 +92,6 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Servidor en puerto ${PORT}`);
   iniciarEscuchaAprobaciones(); // detecta cotizaciones creadas en TallerNet
-  iniciarRecordatoriosCitas();  // NUEVO — recordatorio de cita el día anterior
+  iniciarRecordatoriosCitas();  // recordatorio de cita el día anterior
+  iniciarEnvioManual(enviarWhatsApp); // NUEVO — mensajes escritos desde el Centro de Chats
 });
