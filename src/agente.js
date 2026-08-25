@@ -6,7 +6,6 @@ import {
   guardarMensaje,
   marcarHumano,
   estaEnHumano,
-  contarMensajesTrasHandoff,
   yaFuePasadoAntes,
 } from "./memoria.js";
 import { notificarLeadCaliente } from "./notificar.js";
@@ -14,13 +13,6 @@ import { notificarLeadCaliente } from "./notificar.js";
 import { HERRAMIENTAS_TALLER, ejecutarHerramientaTaller } from "./tallernet.js";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
-// Recordatorios mientras el cliente está en manos del asesor (dentro de las 12h).
-const RECORDATORIOS = [
-  "¡Gracias por escribir! 🙌 Ya un asesor tiene tus datos y te contactará muy pronto para ayudarte personalmente. Cualquier cosa, aquí sigo.",
-  "En un momento te contacta el asesor que te asigné. 🏍️ Está terminando de organizar tu información para darte la mejor atención.",
-  "Tranquilo, tu solicitud ya está en manos de nuestro equipo y no se ha perdido. Un asesor te escribe lo antes posible. ¡Gracias por la paciencia! 🙏",
-];
 
 /**
  * Prepara el historial para la API de Claude.
@@ -59,14 +51,9 @@ function prepararHistorial(historial) {
 export async function procesarMensaje(telefono, texto) {
   await guardarMensaje(telefono, "user", texto);
 
-  // Si está en manos del asesor (dentro de 12h): recordatorio amable, no atiende normal.
-  if (await estaEnHumano(telefono)) {
-    const veces = await contarMensajesTrasHandoff(telefono);
-    const idx = Math.min(veces, RECORDATORIOS.length - 1);
-    const recordatorio = RECORDATORIOS[idx];
-    await guardarMensaje(telefono, "assistant", recordatorio);
-    return { respuesta: recordatorio, handoff: false };
-  }
+  // Si está en manos del asesor (dentro de 12h): el agente SIGUE atendiendo
+  // (taller, citas, preguntas generales), pero sin gestionar la venta de la moto.
+  const enModoAsesor = await estaEnHumano(telefono);
 
   const historial = await getHistorial(telefono);
 
@@ -103,7 +90,14 @@ export async function procesarMensaje(telefono, texto) {
       `REGLA DEL TALLER: HondaSur atiende ÚNICAMENTE motos marca Honda. Antes de agendar, confirma la marca de la moto; ` +
       `si es de otra marca, informa con amabilidad que el taller solo atiende Honda y NO agendes la cita. ` +
       `REPROGRAMACIONES: si el cliente pide cambiar una cita existente (el número de cita suele aparecer en la conversación), ` +
-      `primero cancélala con cancelar_cita_taller y luego agenda la nueva con la disponibilidad.`,
+      `primero cancélala con cancelar_cita_taller y luego agenda la nueva con la disponibilidad.` +
+      (enModoAsesor
+        ? `\n\nMODO ASESOR ACTIVO: este cliente ya fue transferido a un asesor comercial humano para su compra de moto. ` +
+          `NO cotices motos, NO negocies precios de motos ni gestiones la compra: eso lo hace el asesor, que lo contactará pronto. ` +
+          `Si el cliente pregunta por la compra, recuérdaselo con amabilidad en una frase. ` +
+          `TODO LO DEMÁS atiéndelo con normalidad: citas y servicios del taller, precios de mantenimiento, y preguntas generales. ` +
+          `NO uses [HANDOFF] de nuevo.`
+        : ""),
     tools: HERRAMIENTAS_TALLER, // Claude puede consultar tarifario, disponibilidad y agendar
   };
 
@@ -147,9 +141,9 @@ export async function procesarMensaje(telefono, texto) {
     .join("\n")
     .trim();
 
-  const handoff = respuesta.includes("[HANDOFF]");
+  const handoff = respuesta.includes("[HANDOFF]") && !enModoAsesor;
+  respuesta = respuesta.replace(/\[HANDOFF\]/g, "").trim();
   if (handoff) {
-    respuesta = respuesta.replace(/\[HANDOFF\]/g, "").trim();
     await marcarHumano(telefono, true);
     const historialCompleto = [...historial, { rol: "assistant", contenido: respuesta }];
     await notificarLeadCaliente(telefono, historialCompleto);
