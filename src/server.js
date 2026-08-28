@@ -12,6 +12,7 @@ import {
   procesarConfirmacionCita,
   manejarEstadoWhatsApp,
   iniciarRecordatoriosCitas,
+  iniciarAvisosMotoLista,
 } from "./tallernet.js";
 
 const app = express();
@@ -93,5 +94,6 @@ app.listen(PORT, () => {
   console.log(`Servidor en puerto ${PORT}`);
   iniciarEscuchaAprobaciones(); // detecta cotizaciones creadas en TallerNet
   iniciarRecordatoriosCitas();  // recordatorio de cita el día anterior
-  iniciarEnvioManual(enviarWhatsApp); // NUEVO — mensajes escritos desde el Centro de Chats
+  iniciarEnvioManual(enviarWhatsApp); // mensajes escritos desde el Centro de Chats
+  iniciarAvisosMotoLista();           // NUEVO — aviso al cliente cuando su moto está lista
 });
