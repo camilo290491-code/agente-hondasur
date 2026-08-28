@@ -94,6 +94,11 @@ export async function procesarMensaje(telefono, texto) {
       `\n\nFECHA Y HORA ACTUAL (Colombia): ${ahoraCol}. En formato YYYY-MM-DD, hoy es ${fechaISO}. ` +
       `Usa esta fecha para interpretar "hoy", "mañana", "el viernes", etc. al agendar citas. ` +
       `Al proponer una cita, consulta primero la disponibilidad y ofrécele al cliente los horarios disponibles que devuelve la herramienta. ` +
+      `HORARIO DEL TALLER: lunes a jueves 9:00am-5:30pm, viernes 9:00am-5:00pm, sábados 9:00am-1:00pm, domingos cerrado. ` +
+      `SÉ CONCRETO: no envíes la lista completa de servicios del taller salvo que el cliente la pida expresamente; ` +
+      `pregunta qué necesita su moto y menciona solo el servicio pertinente (máximo 2-3 opciones) con su precio, guiando siempre hacia agendar la cita. ` +
+      `NUNCA le digas al cliente cuánto demora un servicio ni tiempos estimados: la duración depende de cada moto; ` +
+      `si pregunta, dile que al recibir la moto en el taller se le confirma. ` +
       `REGLA DEL TALLER: HondaSur atiende ÚNICAMENTE motos marca Honda. Antes de agendar, confirma la marca de la moto; ` +
       `si es de otra marca, informa con amabilidad que el taller solo atiende Honda y NO agendes la cita. ` +
       `REPROGRAMACIONES: si el cliente pide cambiar una cita existente (el número de cita suele aparecer en la conversación), ` +
