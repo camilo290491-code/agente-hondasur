@@ -17,8 +17,19 @@ if (!taller) {
 
 const cop = (n) => "$" + Math.round(Number(n || 0)).toLocaleString("es-CO");
 
-// Capacidad diaria agendable del taller (2 mecánicos x 8h con margen para imprevistos)
-const HORAS_AGENDABLES_DIA = 13;
+// Horario real del taller (hora Colombia):
+// Lunes a jueves 9:00-17:30 · Viernes 9:00-17:00 · Sábado 9:00-13:00 · Domingo cerrado
+function jornadaDelDia(fechaStr) {
+  const dia = new Date(fechaStr + "T12:00:00").getDay(); // 0=domingo
+  if (dia === 0) return null;                      // domingo: cerrado
+  if (dia === 6) return { abre: 9 * 60, cierra: 13 * 60 };      // sábado
+  if (dia === 5) return { abre: 9 * 60, cierra: 17 * 60 };      // viernes
+  return { abre: 9 * 60, cierra: 17 * 60 + 30 };                // lunes a jueves
+}
+// Capacidad diaria: 2 mecánicos por jornada, con margen para imprevistos
+function capacidadDelDia(j) {
+  return Math.floor(((j.cierra - j.abre) / 60) * 1.6);
+}
 
 // ============================================================
 // PARTE 1 — Herramientas de Claude para citas del taller
@@ -92,6 +103,14 @@ export async function ejecutarHerramientaTaller(nombre, input, telefonoWa) {
     }
 
     if (nombre === "consultar_disponibilidad_taller") {
+      const jornada = jornadaDelDia(input.fecha);
+      if (!jornada) {
+        return {
+          fecha: input.fecha,
+          hay_espacio: false,
+          nota: "Ese día es domingo y el taller está cerrado. Ofrece otro día (L-J 9:00-5:30pm, V 9:00-5:00pm, S 9:00-1:00pm).",
+        };
+      }
       const { data, error } = await taller
         .from("citas")
         .select("hora_inicio, servicio_id, servicios(tiempo_est_horas)")
@@ -102,10 +121,8 @@ export async function ejecutarHerramientaTaller(nombre, input, telefonoWa) {
         (a, c) => a + Number(c.servicios?.tiempo_est_horas || 1),
         0
       );
-      const libres = Math.max(0, HORAS_AGENDABLES_DIA - ocupadas);
+      const libres = Math.max(0, capacidadDelDia(jornada) - ocupadas);
 
-      // Horarios sugeridos: jornada 8:00–17:00, propone inicios cada 30 min
-      // donde quepa al menos 1 hora sin chocar con citas ya agendadas.
       const aMin = (h) => {
         const [hh, mm] = String(h).split(":").map(Number);
         return hh * 60 + (mm || 0);
@@ -117,8 +134,10 @@ export async function ejecutarHerramientaTaller(nombre, input, telefonoWa) {
           const dur = Number(c.servicios?.tiempo_est_horas || 1) * 60;
           return [ini, ini + dur];
         });
+      // Propone inicios cada 30 min dentro de la jornada real del día,
+      // dejando al menos 1 hora antes del cierre y sin chocar con otras citas.
       const sugeridos = [];
-      for (let t = 8 * 60; t <= 16 * 60 && sugeridos.length < 8; t += 30) {
+      for (let t = jornada.abre; t <= jornada.cierra - 60 && sugeridos.length < 8; t += 30) {
         const fin = t + 60;
         const choca = ocupados.some(([a, b]) => t < b && fin > a);
         if (!choca) {
@@ -130,11 +149,10 @@ export async function ejecutarHerramientaTaller(nombre, input, telefonoWa) {
       }
       return {
         fecha: input.fecha,
-        horas_ocupadas: ocupadas,
         horas_libres: libres,
         hay_espacio: libres > 0 && sugeridos.length > 0,
         horarios_disponibles: sugeridos,
-        nota: "Ofrécele al cliente 3 o 4 de estos horarios para que elija.",
+        nota: "Ofrécele al cliente 3 o 4 de estos horarios para que elija. No le menciones cuánto dura el servicio.",
       };
     }
 
@@ -320,6 +338,50 @@ async function enviarRecordatorioCita(c) {
     )
     .eq("id", c.id);
   console.log("[tallernet] recordatorio cita #" + c.id, e.ok ? "enviado" : "FALLÓ");
+}
+
+// Avisos de "moto lista": el botón en TallerNet marca el registro y aquí se envía por plantilla.
+async function enviarAvisosMotoLista() {
+  if (!taller) return;
+  const { data } = await taller
+    .from("registros")
+    .select("id, placa, cliente, telefono")
+    .eq("aviso_listo_solicitado", true)
+    .is("aviso_listo_enviado_at", null)
+    .not("telefono", "is", null)
+    .limit(10);
+  for (const r of data || []) {
+    const tel = String(r.telefono).replace(/\D/g, "");
+    const e = await enviarWhatsAppPlantilla(
+      tel,
+      process.env.TEMPLATE_MOTO_LISTA || "moto_lista",
+      process.env.TEMPLATE_IDIOMA || "es_CO",
+      [r.cliente || "cliente", r.placa],
+      []
+    );
+    await taller
+      .from("registros")
+      .update(
+        e.ok
+          ? { aviso_listo_enviado_at: new Date().toISOString(), aviso_listo_solicitado: false }
+          : { aviso_listo_solicitado: false }
+      )
+      .eq("id", r.id);
+    console.log("[tallernet] aviso moto lista", r.placa, e.ok ? "enviado" : "FALLÓ (¿plantilla moto_lista aprobada?)");
+  }
+}
+
+export function iniciarAvisosMotoLista() {
+  if (!taller) return;
+  enviarAvisosMotoLista();
+  setInterval(enviarAvisosMotoLista, 60 * 1000);
+  taller
+    .channel("avisos-moto-lista")
+    .on("postgres_changes",
+      { event: "UPDATE", schema: "public", table: "registros" },
+      (p) => { if (p.new?.aviso_listo_solicitado) enviarAvisosMotoLista(); })
+    .subscribe((s) => console.log("[tallernet] realtime registros:", s));
+  console.log("[tallernet] avisos de moto lista activos");
 }
 
 // Recordatorios manuales: el botón "Enviar ya" de TallerNet marca la cita y aquí se envía al instante.
