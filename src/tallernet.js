@@ -220,25 +220,30 @@ export async function ejecutarHerramientaTaller(nombre, input, telefonoWa) {
     if (nombre === "consultar_motos_disponibles") {
       const { data, error } = await taller
         .from("motos_catalogo")
-        .select("nombre, categoria, precio, precio_promo, promo_texto, colores, caracteristicas")
+        .select("nombre, categoria, precio, precio_promo, promo_texto, precio_papeles, colores, caracteristicas")
         .eq("activo", true)
         .order("orden");
       if (error) return { error: error.message };
-      const motos = (data || []).map((m) => ({
+      const motos = (data || []).map((m) => {
+        const base = m.precio_promo ? Number(m.precio_promo) : (m.precio ? Number(m.precio) : null);
+        const pap = m.precio_papeles ? Number(m.precio_papeles) : null;
+        return {
         modelo: m.nombre,
         categoria: m.categoria || null,
         precio: m.precio ? Number(m.precio) : null,
+        ...(pap ? { papeles: pap } : {}),
+        ...(base && pap ? { total_listo_para_rodar: base + pap } : {}),
         ...(m.precio_promo ? { precio_promocion: Number(m.precio_promo) } : {}),
         ...(m.promo_texto ? { promo: m.promo_texto } : {}),
         ...(m.colores ? { colores: m.colores } : {}),
         ...(m.caracteristicas
           ? { caracteristicas: String(m.caracteristicas).split("\n").filter(Boolean).slice(0, 4) }
           : {}),
-      }));
+      };});
       return {
         motos,
         nota:
-          "Precios de contado con IVA, catálogo vigente. Si una moto tiene precio_promocion o promo, cotiza con la promoción y menciónala como oferta del mes (el precio normal es el de referencia). Si el modelo que pide el cliente no aparece aquí, dile que consultas disponibilidad con un asesor; no inventes precios.",
+          "Precios de contado con IVA, catálogo vigente. Cotiza SIEMPRE los tres números: precio (con promoción si existe), papeles y total_listo_para_rodar. Si una moto tiene precio_promocion o promo, preséntala como oferta del mes. Si papeles no aparece en un modelo, da el precio y di que el valor exacto de papeles lo confirma un asesor. Si el modelo no aparece en el catálogo, dile que lo consultas con un asesor; no inventes precios.",
       };
     }
 
