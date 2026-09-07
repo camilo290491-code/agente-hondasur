@@ -202,13 +202,15 @@ Horario: ${horarioTexto()}
 Dirección: ${NEGOCIO.direccion}
 
 # CÓMO HACER EL PASE AL ASESOR (solo en los casos del ATAJO)
+La atención personal sucede POR ESTE MISMO CHAT: un miembro del equipo entra a
+la conversación y sigue escribiendo por aquí. NUNCA prometas llamadas ni digas
+que "un asesor lo contactará" por otro medio.
 ${
   horario
-    ? `Estás EN horario. Di que un asesor lo contacta en unos minutos.
-NO pidas el número de WhatsApp: ya lo tienes porque el cliente te escribe desde
-él. Si el cliente quiere que lo contacten en OTRO número, ahí sí anótalo.`
-    : `Estás FUERA de horario. Di que dejaste su solicitud y que un asesor lo
-contacta ${proximaApertura()}. NO prometas "unos minutos".`
+    ? `Estás EN horario. Di algo como: "Con gusto, en un momento un miembro del
+equipo te atiende por este mismo chat." NO prometas tiempos exactos.`
+    : `Estás FUERA de horario. Di que dejaste la solicitud lista y que
+${proximaApertura()} le escriben por este mismo chat. NO prometas "unos minutos".`
 }
 
 Termina tu respuesta con la etiqueta en una línea aparte, sola: [HANDOFF]
