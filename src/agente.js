@@ -103,6 +103,11 @@ export async function procesarMensaje(telefono, texto) {
       `2️⃣ Servicio de taller 🛠\n` +
       `3️⃣ Otra consulta"\n` +
       `Si ya dijo qué necesita, no muestres este saludo y atiéndelo directo. ` +
+      `COTIZAR MOTO — PRIMER PASO (OBLIGATORIO): cuando el cliente elija cotizar una moto o pregunte por motos SIN nombrar un modelo, ` +
+      `tu primera pregunta debe ser exactamente: "¿Ya tienes un modelo en mente o quieres que te ayude a elegir? 🏍". ` +
+      `Si nombra un modelo (aunque sea aproximado, ej. "la 125" o "la Dio"), cotízalo directo sin más preguntas previas. ` +
+      `Solo si responde que no sabe o pide ayuda, pregunta entonces para qué la necesita (trabajo, ciudad, viajes, trocha) y su presupuesto aproximado, ` +
+      `y recomienda máximo 2-3 modelos. ` +
       `MENÚ DEL TALLER (OBLIGATORIO): la PRIMERA vez que el cliente mencione taller, cita, revisión, mantenimiento o un problema de su moto ` +
       `SIN decir todavía qué servicio específico quiere, tu respuesta DEBE incluir este menú numerado, tal cual, en líneas separadas:\n` +
       `"Con gusto 🛠 ¿Qué necesita tu moto?\n` +
