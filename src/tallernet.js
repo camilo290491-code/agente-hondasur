@@ -17,18 +17,27 @@ if (!taller) {
 
 const cop = (n) => "$" + Math.round(Number(n || 0)).toLocaleString("es-CO");
 
-// Horario real del taller (hora Colombia):
-// Lunes a jueves 9:00-17:30 · Viernes 9:00-17:00 · Sábado 9:00-13:00 · Domingo cerrado
-function jornadaDelDia(fechaStr) {
-  const dia = new Date(fechaStr + "T12:00:00").getDay(); // 0=domingo
-  if (dia === 0) return null;                      // domingo: cerrado
-  if (dia === 6) return { abre: 9 * 60, cierra: 13 * 60 };      // sábado
-  if (dia === 5) return { abre: 9 * 60, cierra: 17 * 60 };      // viernes
-  return { abre: 9 * 60, cierra: 17 * 60 + 30 };                // lunes a jueves
+// La disponibilidad real (carriles, duración por servicio, tope del 85%) la
+// calcula la función central web_horarios_disponibles en la base de TallerNet —
+// la misma que usa la página web, así ambos canales ofrecen exactamente lo mismo.
+
+// Tarifa hora y holgura vigentes (tabla config de TallerNet)
+async function configTaller() {
+  const { data } = await taller.from("config")
+    .select("tarifa_hora, holgura_min").eq("id", 1).maybeSingle();
+  return {
+    tarifa: Number(data?.tarifa_hora || 80000),
+    holgura: Number(data?.holgura_min ?? 15),
+  };
 }
-// Capacidad diaria: 2 mecánicos por jornada, con margen para imprevistos
-function capacidadDelDia(j) {
-  return Math.floor(((j.cierra - j.abre) / 60) * 1.6);
+
+// Busca un servicio activo por su código (ej. TAL-041)
+async function servicioPorCodigo(codigo) {
+  const { data } = await taller.from("servicios")
+    .select("id, codigo, nombre, horas, minutos_agenda, carril, paga")
+    .eq("activo", true).eq("codigo", String(codigo || "").trim().toUpperCase())
+    .maybeSingle();
+  return data || null;
 }
 
 // ============================================================
@@ -39,38 +48,38 @@ export const HERRAMIENTAS_TALLER = [
   {
     name: "consultar_servicios_taller",
     description:
-      "Consulta el tarifario oficial del taller HondaSur: servicios de mantenimiento y reparación de motos con su precio de mano de obra y tiempo estimado. Úsala cuando el cliente pregunte por servicios de taller, precios de mantenimiento, o quiera agendar una cita.",
+      "Consulta el menú del taller HondaSur: las 5 opciones principales, las revisiones por kilometraje, los servicios especiales y el tarifario completo con precios calculados a la tarifa vigente. Úsala cuando el cliente pregunte por servicios del taller, precios de mantenimiento, o quiera agendar una cita.",
     input_schema: { type: "object", properties: {}, required: [] },
   },
   {
     name: "consultar_disponibilidad_taller",
     description:
-      "Consulta cuántas horas de agenda quedan libres en el taller para una fecha específica. Úsala SIEMPRE antes de proponer o confirmar una cita.",
+      "Consulta los horarios disponibles del taller para una fecha y un servicio específico (los cupos dependen del servicio: cada uno ocupa su propio tiempo y carril). Úsala SIEMPRE antes de proponer o confirmar una cita, con el código del servicio ya elegido.",
     input_schema: {
       type: "object",
       properties: {
         fecha: { type: "string", description: "Fecha en formato YYYY-MM-DD" },
+        codigo_servicio: { type: "string", description: "Código del servicio, ej. TAL-041 (de consultar_servicios_taller)" },
       },
-      required: ["fecha"],
+      required: ["fecha", "codigo_servicio"],
     },
   },
   {
     name: "agendar_cita_taller",
     description:
-      "Agenda una cita en el taller HondaSur. Úsala SOLO cuando el cliente ya confirmó fecha, hora y servicio, y te dio su nombre y la placa de la moto. Después de agendar, confirma al cliente el número de cita, la fecha y la hora.",
+      "Agenda una cita en el taller HondaSur. Úsala SOLO cuando el cliente ya confirmó fecha, hora y servicio, y te dio su nombre, el modelo de la moto y el kilometraje actual. Después de agendar, confirma al cliente el número de cita, la fecha y la hora.",
     input_schema: {
       type: "object",
       properties: {
         fecha: { type: "string", description: "YYYY-MM-DD" },
-        hora: { type: "string", description: "Hora en formato 24h, ej 09:30" },
+        hora: { type: "string", description: "Hora en formato 24h, ej 09:30 (una de las disponibles)" },
         cliente: { type: "string", description: "Nombre del cliente" },
-        placa: { type: "string", description: "Placa de la moto" },
-        servicio_id: {
-          type: "number",
-          description: "id del servicio elegido, obtenido de consultar_servicios_taller",
-        },
+        codigo_servicio: { type: "string", description: "Código del servicio, ej. TAL-002" },
+        modelo: { type: "string", description: "Modelo de la moto, ej. CB 125F, Dio, XR 150L" },
+        kilometraje: { type: "number", description: "Kilometraje actual de la moto" },
+        placa: { type: "string", description: "Placa de la moto (si la tiene a la mano)" },
       },
-      required: ["fecha", "hora", "cliente", "servicio_id"],
+      required: ["fecha", "hora", "cliente", "codigo_servicio", "modelo", "kilometraje"],
     },
   },
   {
@@ -93,70 +102,90 @@ export async function ejecutarHerramientaTaller(nombre, input, telefonoWa) {
 
   try {
     if (nombre === "consultar_servicios_taller") {
+      const { tarifa } = await configTaller();
       const { data, error } = await taller
         .from("servicios")
-        .select("id,nombre,categoria,tiempo_est_horas,precio_mano_obra")
+        .select("codigo, nombre, horas, paga, web_especial")
         .eq("activo", true)
-        .order("nombre");
+        .not("codigo", "is", null)
+        .order("codigo");
       if (error) return { error: error.message };
-      return { servicios: data };
+      const visibles = (data || []).filter((s) => !String(s.paga || "").startsWith("Interno"));
+      const precioDe = (s) =>
+        s.paga === "FANALCA" ? 0 : Math.round(Number(s.horas || 0) * tarifa);
+      const item = (s) => ({
+        codigo: s.codigo,
+        nombre: s.nombre,
+        precio: precioDe(s),
+        ...(s.paga === "FANALCA" ? { garantia: "SIN COSTO por garantía Honda" } : {}),
+      });
+      return {
+        tarifa_hora: tarifa,
+        menu_principal: [
+          { opcion: "Cambio de aceite", codigo: "TAL-041" },
+          { opcion: "Revisión por kilometraje", nota: "pregunta el kilometraje y elige la revisión de la lista" },
+          { opcion: "Mantenimiento general", codigo: "TAL-013", nota: "NUNCA des precio cerrado: se cotiza según el estado de la moto y se aprueba por WhatsApp" },
+          { opcion: "Reparación o falla", codigo: "TAL-051", nota: "se agenda el diagnóstico; la reparación se cotiza al revisar la moto, sin comprometer precio" },
+          { opcion: "Servicios especiales", nota: "usa la lista de especiales" },
+        ],
+        revisiones_por_km: visibles.filter((s) => /^TAL-0(0[1-9]|1[01])$/.test(s.codigo)).map(item),
+        especiales: visibles.filter((s) => s.web_especial).map(item),
+        todos_los_servicios: visibles.map(item),
+        nota:
+          "Ofrece el menú de 5 opciones, no la lista completa. Las revisiones de 1.000, 3.000 y 6.000 km son SIN COSTO por garantía Honda; después van cada 3.000 km (9.000, 12.000… hasta 30.000; por encima el ciclo se repite: 33.000 usa la de 3.000).",
+      };
     }
 
     if (nombre === "consultar_disponibilidad_taller") {
-      const jornada = jornadaDelDia(input.fecha);
-      if (!jornada) {
+      const serv = await servicioPorCodigo(input.codigo_servicio);
+      if (!serv) return { error: "No encuentro el servicio " + input.codigo_servicio + ". Consulta primero consultar_servicios_taller." };
+      const { data, error } = await taller.rpc("web_horarios_disponibles", {
+        p_fecha: input.fecha,
+        p_servicio_id: serv.id,
+      });
+      if (error) return { error: error.message };
+      if (!data?.abierto) {
         return {
           fecha: input.fecha,
           hay_espacio: false,
-          nota: "Ese día es domingo y el taller está cerrado. Ofrece otro día (L-J 9:00-5:30pm, V 9:00-5:00pm, S 9:00-1:00pm).",
+          nota: "Ese día el taller está cerrado o la fecha ya pasó. Horario: L-J 9:00am-5:30pm, V 9:00am-5:00pm, S 9:00am-1:00pm, domingos cerrado.",
         };
       }
-      const { data, error } = await taller
-        .from("citas")
-        .select("hora_inicio, servicio_id, servicios(tiempo_est_horas)")
-        .eq("fecha", input.fecha)
-        .neq("estado", "Cancelada");
-      if (error) return { error: error.message };
-      const ocupadas = (data || []).reduce(
-        (a, c) => a + Number(c.servicios?.tiempo_est_horas || 1),
-        0
-      );
-      const libres = Math.max(0, capacidadDelDia(jornada) - ocupadas);
-
-      const aMin = (h) => {
-        const [hh, mm] = String(h).split(":").map(Number);
-        return hh * 60 + (mm || 0);
-      };
-      const ocupados = (data || [])
-        .filter((c) => c.hora_inicio)
-        .map((c) => {
-          const ini = aMin(c.hora_inicio);
-          const dur = Number(c.servicios?.tiempo_est_horas || 1) * 60;
-          return [ini, ini + dur];
-        });
-      // Propone inicios cada 30 min dentro de la jornada real del día,
-      // dejando al menos 1 hora antes del cierre y sin chocar con otras citas.
-      const sugeridos = [];
-      for (let t = jornada.abre; t <= jornada.cierra - 60 && sugeridos.length < 8; t += 30) {
-        const fin = t + 60;
-        const choca = ocupados.some(([a, b]) => t < b && fin > a);
-        if (!choca) {
-          sugeridos.push(
-            String(Math.floor(t / 60)).padStart(2, "0") + ":" +
-            String(t % 60).padStart(2, "0")
-          );
-        }
+      const horarios = data.horarios || [];
+      if (!horarios.length) {
+        return {
+          fecha: input.fecha,
+          servicio: serv.nombre,
+          hay_espacio: false,
+          nota: "Ese día ya está lleno para este servicio. Ofrece otra fecha cercana.",
+        };
       }
       return {
         fecha: input.fecha,
-        horas_libres: libres,
-        hay_espacio: libres > 0 && sugeridos.length > 0,
-        horarios_disponibles: sugeridos,
+        servicio: serv.nombre,
+        hay_espacio: true,
+        horarios_disponibles: horarios,
         nota: "Ofrécele al cliente 3 o 4 de estos horarios para que elija. No le menciones cuánto dura el servicio.",
       };
     }
 
     if (nombre === "agendar_cita_taller") {
+      const serv = await servicioPorCodigo(input.codigo_servicio);
+      if (!serv) return { error: "Servicio no válido: " + input.codigo_servicio };
+      // Revalidar que la hora siga disponible (mismos cupos que la página web)
+      const { data: disp } = await taller.rpc("web_horarios_disponibles", {
+        p_fecha: input.fecha,
+        p_servicio_id: serv.id,
+      });
+      const horarios = disp?.horarios || [];
+      if (!disp?.abierto || !horarios.includes(input.hora)) {
+        return {
+          error: "Ese horario ya no está disponible.",
+          horarios_disponibles: horarios,
+          nota: "Ofrécele al cliente los horarios que sí están disponibles.",
+        };
+      }
+      const { holgura } = await configTaller();
       const { data, error } = await taller
         .from("citas")
         .insert({
@@ -164,9 +193,13 @@ export async function ejecutarHerramientaTaller(nombre, input, telefonoWa) {
           hora_inicio: input.hora,
           cliente: input.cliente,
           telefono: telefonoWa || null,
-          placa: (input.placa || "").toUpperCase(),
-          servicio_id: input.servicio_id,
+          placa: (input.placa || "").toUpperCase() || null,
+          servicio_id: serv.id,
           estado: "Agendada",
+          origen: "whatsapp",
+          modelo: input.modelo || null,
+          kilometraje: Number.isFinite(Number(input.kilometraje)) ? Math.round(Number(input.kilometraje)) : null,
+          duracion_min: Number(serv.minutos_agenda || 60) + holgura,
         })
         .select("id")
         .single();
@@ -174,7 +207,7 @@ export async function ejecutarHerramientaTaller(nombre, input, telefonoWa) {
       return {
         ok: true,
         cita_numero: data.id,
-        detalle: `Cita #${data.id} agendada para el ${input.fecha} a las ${input.hora}.`,
+        detalle: `Cita #${data.id} (${serv.nombre}) agendada para el ${input.fecha} a las ${input.hora}.`,
       };
     }
 
