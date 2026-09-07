@@ -8,12 +8,28 @@ import {
   estaEnHumano,
   estaBajoControlHumano,
   yaFuePasadoAntes,
+  marcarClientePotencial,
 } from "./memoria.js";
 import { notificarLeadCaliente } from "./notificar.js";
 // NUEVO — herramientas del taller (citas y tarifario de TallerNet)
 import { HERRAMIENTAS_TALLER, ejecutarHerramientaTaller } from "./tallernet.js";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+// Herramienta CRM: el agente marca clientes potenciales en silencio
+const HERRAMIENTA_LEAD = {
+  name: "marcar_cliente_potencial",
+  description:
+    "Marca a este cliente como POTENCIAL en el panel del equipo (interés real de compra de moto). Es un marcado INTERNO y SILENCIOSO: nunca le digas al cliente que lo marcaste ni que alguien lo contactará; tú sigues atendiéndolo con normalidad. Úsala apenas detectes interés real y vuelve a usarla si aparece información nueva (nombre, cambio de modelo).",
+  input_schema: {
+    type: "object",
+    properties: {
+      moto_interes: { type: "string", description: "Modelo que le interesa, ej. CB190R 2.0" },
+      resumen: { type: "string", description: "Resumen corto: qué quiere, nombre si lo dio, señales de interés. Ej: 'Andrés, pregunta CB190R, pide financiación, quiere verla el sábado'" },
+    },
+    required: ["resumen"],
+  },
+};
 
 /**
  * Prepara el historial para la API de Claude.
@@ -103,6 +119,13 @@ export async function procesarMensaje(telefono, texto) {
       `2️⃣ Servicio de taller 🛠\n` +
       `3️⃣ Otra consulta"\n` +
       `Si ya dijo qué necesita, no muestres este saludo y atiéndelo directo. ` +
+      `CLIENTES POTENCIALES (MUY IMPORTANTE): apenas detectes interés real de compra (pregunta por un modelo y sigue conversando, ` +
+      `pide financiación, pregunta cómo separarla, quiere venir a verla, o da su nombre), usa marcar_cliente_potencial con el modelo y un resumen corto. ` +
+      `Es un marcado interno: NUNCA le digas al cliente que lo marcaste y NUNCA le prometas que "un asesor lo va a contactar" — ` +
+      `tú lo sigues atendiendo con normalidad hasta resolver todo lo que pueda resolverse por chat. ` +
+      `Si pide venir a verla o que lo atiendan personalmente, dile con gusto que lo esperan en el local (dirección y horario) — sin prometer llamadas. ` +
+      `El [HANDOFF] queda reservado SOLO para cuando el cliente pida EXPLÍCITAMENTE hablar con una persona o quiera cerrar ya la compra (pagar, separar): ` +
+      `en ese caso marca también marcar_cliente_potencial y luego haz el [HANDOFF]. ` +
       `PRECIOS DE MOTOS (REGLA DE ORO): NUNCA cotices una moto de memoria ni uses listas de precios que aparezcan en otras instrucciones: ` +
       `el catálogo cambia y el ÚNICO precio válido es el que devuelve la herramienta consultar_motos_disponibles en ese momento. ` +
       `Consúltala SIEMPRE antes de dar un precio. Si la moto tiene precio_promocion o promo, cotiza con la promoción y preséntala como oferta del mes. ` +
@@ -145,7 +168,7 @@ export async function procesarMensaje(telefono, texto) {
           `TODO LO DEMÁS atiéndelo con normalidad: citas y servicios del taller, precios de mantenimiento, y preguntas generales. ` +
           `NO uses [HANDOFF] de nuevo.`
         : ""),
-    tools: HERRAMIENTAS_TALLER, // Claude puede consultar tarifario, disponibilidad y agendar
+    tools: [...HERRAMIENTAS_TALLER, HERRAMIENTA_LEAD], // taller + marcado de clientes potenciales
   };
 
   let msg = await anthropic.messages.create({
@@ -165,7 +188,9 @@ export async function procesarMensaje(telefono, texto) {
     // Ejecutar cada herramienta y devolver los resultados
     const resultados = [];
     for (const uso of usosDeHerramienta) {
-      const salida = await ejecutarHerramientaTaller(uso.name, uso.input, telefono);
+      const salida = uso.name === "marcar_cliente_potencial"
+        ? await marcarClientePotencial(telefono, uso.input)
+        : await ejecutarHerramientaTaller(uso.name, uso.input, telefono);
       console.log("[herramienta]", uso.name, JSON.stringify(salida).slice(0, 200));
       resultados.push({
         type: "tool_result",
