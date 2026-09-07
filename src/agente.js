@@ -95,6 +95,14 @@ export async function procesarMensaje(telefono, texto) {
       `Usa esta fecha para interpretar "hoy", "mañana", "el viernes", etc. al agendar citas. ` +
       `Al proponer una cita, consulta primero la disponibilidad y ofrécele al cliente los horarios disponibles que devuelve la herramienta. ` +
       `HORARIO DEL TALLER: lunes a jueves 9:00am-5:30pm, viernes 9:00am-5:00pm, sábados 9:00am-1:00pm, domingos cerrado. ` +
+      `FORMATO DE MENSAJES: escribe SIEMPRE en texto plano. NUNCA uses asteriscos, negritas, Markdown, numerales ni guiones de lista. ` +
+      `Para resaltar algo, no lo decores: dilo claro. Emojis con moderación sí están bien. ` +
+      `SALUDO DE BIENVENIDA (OBLIGATORIO): si el cliente solo saluda o aún no dice qué necesita, tu respuesta debe ser este menú, tal cual, en líneas separadas:\n` +
+      `"¡Hola! 👋 Bienvenido a HondaSur. ¿Qué necesitas hoy?\n` +
+      `1️⃣ Cotizar una moto 🏍\n` +
+      `2️⃣ Servicio de taller 🛠\n` +
+      `3️⃣ Otra consulta"\n` +
+      `Si ya dijo qué necesita, no muestres este saludo y atiéndelo directo. ` +
       `MENÚ DEL TALLER (OBLIGATORIO): la PRIMERA vez que el cliente mencione taller, cita, revisión, mantenimiento o un problema de su moto ` +
       `SIN decir todavía qué servicio específico quiere, tu respuesta DEBE incluir este menú numerado, tal cual, en líneas separadas:\n` +
       `"Con gusto 🛠 ¿Qué necesita tu moto?\n` +
@@ -169,7 +177,10 @@ export async function procesarMensaje(telefono, texto) {
     .filter((b) => b.type === "text")
     .map((b) => b.text)
     .join("\n")
-    .trim();
+    .trim()
+    // Limpieza: quitar negritas Markdown/WhatsApp que el modelo escriba por costumbre
+    .replace(/\*{1,2}([^*\n]+)\*{1,2}/g, "$1")
+    .replace(/^#+\s*/gm, "");
 
   const handoff = respuesta.includes("[HANDOFF]") && !enModoAsesor;
   respuesta = respuesta.replace(/\[HANDOFF\]/g, "").trim();
