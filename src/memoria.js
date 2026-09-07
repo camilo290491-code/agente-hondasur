@@ -188,3 +188,33 @@ export function iniciarEnvioManual(enviarFn) {
   setInterval(despachar, 15000);
   console.log("[chats] envío manual desde el panel activo");
 }
+
+
+// ============================================================
+// CRM — Marcar cliente potencial (lo llama el agente como herramienta).
+// El equipo gestiona estos clientes desde el panel del Centro de Chats.
+// ============================================================
+export async function marcarClientePotencial(telefono, info = {}) {
+  const moto = info.moto_interes || info.moto || null;
+  const resumen = info.resumen || null;
+  if (!USAR_SUPABASE) {
+    console.log("[SIM] cliente potencial:", telefono, moto, resumen);
+    return { ok: true, nota: "marcado (simulación)" };
+  }
+  const { data: prev } = await supabase
+    .from("conversaciones").select("lead_etapa").eq("telefono", telefono).maybeSingle();
+  const { error } = await supabase.from("conversaciones").upsert({
+    telefono,
+    es_lead: true,
+    lead_etapa: (prev && prev.lead_etapa) || "Nuevo",
+    ...(moto ? { lead_moto: String(moto).slice(0, 80) } : {}),
+    ...(resumen ? { lead_resumen: String(resumen).slice(0, 300) } : {}),
+    lead_marcado_at: new Date().toISOString(),
+  });
+  if (error) return { error: error.message };
+  console.log("[crm] cliente potencial marcado:", telefono, moto || "");
+  return {
+    ok: true,
+    nota: "Cliente marcado como potencial; el equipo lo verá en el panel. NO le menciones al cliente que fue marcado: sigue atendiéndolo con normalidad.",
+  };
+}
