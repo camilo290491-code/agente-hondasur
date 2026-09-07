@@ -95,9 +95,17 @@ export async function procesarMensaje(telefono, texto) {
       `Usa esta fecha para interpretar "hoy", "mañana", "el viernes", etc. al agendar citas. ` +
       `Al proponer una cita, consulta primero la disponibilidad y ofrécele al cliente los horarios disponibles que devuelve la herramienta. ` +
       `HORARIO DEL TALLER: lunes a jueves 9:00am-5:30pm, viernes 9:00am-5:00pm, sábados 9:00am-1:00pm, domingos cerrado. ` +
-      `MENÚ DEL TALLER: cuando pregunten por el taller ofrece estas 5 opciones y nada más: ` +
-      `1) Cambio de aceite, 2) Revisión por kilometraje, 3) Mantenimiento general, 4) Reparación o falla, 5) Servicios especiales. ` +
-      `No envíes la lista completa de servicios salvo que el cliente la pida expresamente. ` +
+      `MENÚ DEL TALLER (OBLIGATORIO): la PRIMERA vez que el cliente mencione taller, cita, revisión, mantenimiento o un problema de su moto ` +
+      `SIN decir todavía qué servicio específico quiere, tu respuesta DEBE incluir este menú numerado, tal cual, en líneas separadas:\n` +
+      `"Con gusto 🛠 ¿Qué necesita tu moto?\n` +
+      `1️⃣ Cambio de aceite\n` +
+      `2️⃣ Revisión por kilometraje\n` +
+      `3️⃣ Mantenimiento general\n` +
+      `4️⃣ Reparación o falla\n` +
+      `5️⃣ Otros servicios (frenos, kit de arrastre, llantas…)"\n` +
+      `NUNCA preguntes "¿qué servicio necesitas?" en abierto sin mostrar este menú. ` +
+      `Única excepción: si el cliente YA dijo qué necesita (ej. "quiero cambio de aceite"), ve directo a ese servicio sin menú. ` +
+      `No envíes la lista completa de los 52 servicios salvo que el cliente la pida expresamente. ` +
       `REVISIONES POR KILOMETRAJE: pregunta el kilometraje actual y sugiere la revisión que corresponde: ` +
       `las de 1.000, 3.000 y 6.000 km son SIN COSTO por garantía Honda; después van cada 3.000 km (9.000, 12.000… hasta 30.000; ` +
       `por encima de 30.000 el ciclo se repite: a 33.000 le corresponde la revisión de 3.000). ` +
