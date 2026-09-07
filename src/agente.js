@@ -103,6 +103,10 @@ export async function procesarMensaje(telefono, texto) {
       `2️⃣ Servicio de taller 🛠\n` +
       `3️⃣ Otra consulta"\n` +
       `Si ya dijo qué necesita, no muestres este saludo y atiéndelo directo. ` +
+      `PRECIOS DE MOTOS (REGLA DE ORO): NUNCA cotices una moto de memoria ni uses listas de precios que aparezcan en otras instrucciones: ` +
+      `el catálogo cambia y el ÚNICO precio válido es el que devuelve la herramienta consultar_motos_disponibles en ese momento. ` +
+      `Consúltala SIEMPRE antes de dar un precio. Si la moto tiene precio_promocion o promo, cotiza con la promoción y preséntala como oferta del mes. ` +
+      `Si el modelo no aparece en el catálogo, dile al cliente que lo consultas con un asesor; no inventes precios ni promociones. ` +
       `COTIZAR MOTO — PRIMER PASO (OBLIGATORIO): cuando el cliente elija cotizar una moto o pregunte por motos SIN nombrar un modelo, ` +
       `tu primera pregunta debe ser exactamente: "¿Ya tienes un modelo en mente o quieres que te ayude a elegir? 🏍". ` +
       `Si nombra un modelo (aunque sea aproximado, ej. "la 125" o "la Dio"), cotízalo directo sin más preguntas previas. ` +
