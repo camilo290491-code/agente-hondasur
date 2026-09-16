@@ -240,7 +240,7 @@ export async function ejecutarHerramientaTaller(nombre, input, telefonoWa) {
         ...(m.promo_texto ? { promo: m.promo_texto } : {}),
         ...(m.colores ? { colores: m.colores } : {}),
         ...(m.caracteristicas
-          ? { caracteristicas: String(m.caracteristicas).split("\n").filter(Boolean).slice(0, 4) }
+          ? { caracteristicas: String(m.caracteristicas).split("\n").filter((l) => l.trim() && !l.trim().startsWith("#")).slice(0, 4) }
           : {}),
       };});
       return {
