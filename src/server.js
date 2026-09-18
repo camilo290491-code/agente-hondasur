@@ -35,6 +35,7 @@ app.get("/webhook", (req, res) => {
 // 2. Recepción de mensajes
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200); // responder rápido a Meta
+  let telFallback = null; // para poder avisarle al cliente si algo falla
   try {
     const entry = req.body.entry?.[0];
     const change = entry?.changes?.[0];
@@ -47,6 +48,7 @@ app.post("/webhook", async (req, res) => {
 
     const mensaje = change?.value?.messages?.[0];
     if (!mensaje) return;
+    telFallback = mensaje.from;
 
     // NUEVO — Botones de aprobación del taller (mensajes tipo "interactive")
     if (mensaje.type === "interactive") {
@@ -84,6 +86,17 @@ app.post("/webhook", async (req, res) => {
     if (respuesta) await enviarWhatsApp(telefono, respuesta);
   } catch (err) {
     console.error("Error procesando webhook:", err);
+    // Blindaje: que un tropiezo interno NUNCA sea silencio para el cliente
+    if (telFallback) {
+      try {
+        await enviarWhatsApp(
+          telFallback,
+          "¡Ups! Se me enredó el sistema un momento 🙈 ¿Me repites tu mensaje, por favor? Ya te atiendo."
+        );
+      } catch (e2) {
+        console.error("No se pudo enviar el aviso de error:", e2?.message);
+      }
+    }
   }
 });
 
