@@ -107,23 +107,29 @@ export async function estaEnHumano(telefono) {
  * Mientras esté activa, el bot guarda lo que el cliente escribe pero NO responde.
  */
 export async function estaBajoControlHumano(telefono) {
-  if (USAR_SUPABASE) {
-    const { data } = await supabase
+  if (!USAR_SUPABASE) return false;
+  const { data } = await supabase
+    .from("conversaciones")
+    .select("control_humano, actualizado")
+    .eq("telefono", telefono)
+    .maybeSingle();
+  if (!data || !data.control_humano) return false;
+
+  // Blindaje: si el equipo tomó control pero lleva 12h sin actividad,
+  // el bot retoma solo — ningún cliente queda huérfano por un olvido.
+  const desde = data.actualizado ? new Date(data.actualizado) : null;
+  const horas = desde ? (Date.now() - desde.getTime()) / (1000 * 60 * 60) : 999;
+  if (horas >= HORAS_HANDOFF) {
+    await supabase
       .from("conversaciones")
-      .select("control_humano")
-      .eq("telefono", telefono)
-      .maybeSingle();
-    return !!(data && data.control_humano);
+      .update({ control_humano: false, actualizado: new Date() })
+      .eq("telefono", telefono);
+    console.log("[control] liberado por inactividad:", telefono);
+    return false;
   }
-  return false;
+  return true;
 }
 
-/**
- * ¿A este cliente se le pasó un lead al asesor ALGUNA vez?
- * Ajustado: la señal es que exista la marca de tiempo del handoff (actualizado),
- * porque el panel de chats también puede crear filas en conversaciones
- * (para el control humano) sin que haya habido pase al asesor.
- */
 export async function yaFuePasadoAntes(telefono) {
   if (USAR_SUPABASE) {
     const { data } = await supabase
