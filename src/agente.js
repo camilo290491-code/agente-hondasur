@@ -13,6 +13,8 @@ import {
 import { notificarLeadCaliente } from "./notificar.js";
 // NUEVO — herramientas del taller (citas y tarifario de TallerNet)
 import { HERRAMIENTAS_TALLER, ejecutarHerramientaTaller } from "./tallernet.js";
+// NUEVO — consulta del estado del crédito (CarteraNet)
+import { HERRAMIENTA_CARTERA, consultarEstadoCredito } from "./cartera.js";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -160,7 +162,14 @@ export async function procesarMensaje(telefono, texto) {
       `REGLA DEL TALLER: HondaSur atiende ÚNICAMENTE motos marca Honda. Antes de agendar, confirma la marca de la moto; ` +
       `si es de otra marca, informa con amabilidad que el taller solo atiende Honda y NO agendes la cita. ` +
       `REPROGRAMACIONES: si el cliente pide cambiar una cita existente (el número de cita suele aparecer en la conversación), ` +
-      `primero cancélala con cancelar_cita_taller y luego agenda la nueva con la disponibilidad.` +
+      `primero cancélala con cancelar_cita_taller y luego agenda la nueva con la disponibilidad. ` +
+      `ESTADO DEL CRÉDITO (cartera): si el cliente pregunta por su crédito, su cuota, cuánto debe, si está al día o en mora, ` +
+      `o recibió un recordatorio de pago y quiere aclararlo, usa consultar_estado_credito. ANTES de llamarla, pídele SIEMPRE su número de cédula ` +
+      `("Para proteger tus datos, confírmame tu número de cédula 🙏") y pásalo a la herramienta. ` +
+      `Si la herramienta dice que la cédula no coincide o que el número no tiene créditos, NO des ningún dato: dile con amabilidad que por seguridad ` +
+      `debe acercarse al almacén con su documento. Si dice en_proceso_juridico, dile únicamente que se comunique con el almacén para gestionar su caso. ` +
+      `Responde con los datos TAL CUAL los devuelve la herramienta, en texto plano y amable; no inventes saldos ni valores que la herramienta no dé: ` +
+      `para saldos exactos o cancelación anticipada, invítalo al almacén. Si está en mora, anímalo a ponerse al día con tacto, sin regañar.` +
       (enModoAsesor
         ? `\n\nMODO ASESOR ACTIVO: este cliente ya fue transferido a un asesor comercial humano para su compra de moto. ` +
           `NO cotices motos, NO negocies precios de motos ni gestiones la compra: eso lo hace el asesor, que lo contactará pronto. ` +
@@ -168,7 +177,7 @@ export async function procesarMensaje(telefono, texto) {
           `TODO LO DEMÁS atiéndelo con normalidad: citas y servicios del taller, precios de mantenimiento, y preguntas generales. ` +
           `NO uses [HANDOFF] de nuevo.`
         : ""),
-    tools: [...HERRAMIENTAS_TALLER, HERRAMIENTA_LEAD], // taller + marcado de clientes potenciales
+    tools: [...HERRAMIENTAS_TALLER, HERRAMIENTA_LEAD, HERRAMIENTA_CARTERA], // taller + leads + estado del crédito
   };
 
   let msg = await anthropic.messages.create({
@@ -190,6 +199,8 @@ export async function procesarMensaje(telefono, texto) {
     for (const uso of usosDeHerramienta) {
       const salida = uso.name === "marcar_cliente_potencial"
         ? await marcarClientePotencial(telefono, uso.input)
+        : uso.name === "consultar_estado_credito"
+        ? await consultarEstadoCredito(telefono, uso.input)
         : await ejecutarHerramientaTaller(uso.name, uso.input, telefono);
       console.log("[herramienta]", uso.name, JSON.stringify(salida).slice(0, 200));
       resultados.push({
