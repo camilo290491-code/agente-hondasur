@@ -165,6 +165,28 @@ async function despacharCola() {
   }
 }
 
+// Lee TODAS las filas de una tabla por páginas de 1000 (Supabase corta en 1000
+// por consulta) y verifica contra el conteo exacto: si falta una sola fila,
+// lanza error y el barrido NO envía nada. Más vale no cobrar que cobrar mal.
+async function leerTodo(tabla, columnas, aplicarFiltro) {
+  let filtroCount = cartera.from(tabla).select("*", { count: "exact", head: true });
+  if (aplicarFiltro) filtroCount = aplicarFiltro(filtroCount);
+  const { count, error: eC } = await filtroCount;
+  if (eC) throw new Error(tabla + ": " + eC.message);
+  let out = [];
+  for (let desde = 0; ; desde += 1000) {
+    let q = cartera.from(tabla).select(columnas).order("id", { ascending: true }).range(desde, desde + 999);
+    if (aplicarFiltro) q = aplicarFiltro(q);
+    const { data, error } = await q;
+    if (error) throw new Error(tabla + ": " + error.message);
+    out = out.concat(data || []);
+    if (!data || data.length < 1000) break;
+  }
+  if (out.length !== count)
+    throw new Error(tabla + ": lectura incompleta (" + out.length + " de " + count + " filas)");
+  return out;
+}
+
 // ============================================================
 // 2) BARRIDO automático diario (si config.recordatorios_auto = 'SI')
 // ============================================================
@@ -187,15 +209,20 @@ async function barridoDiario() {
   const hoy = hoyCol();
   const mesRef = hoy.y + "-" + String(hoy.m + 1).padStart(2, "0");
 
-  const { data: creditos, error: e1 } = await cartera.from("creditos").select("*").eq("estado", "ACTIVO");
-  if (e1) { console.error("[cartera] barrido: error leyendo créditos:", e1.message); return; }
-  const { data: pagos, error: e2 } = await cartera.from("pagos").select("credito_id, estado, fecha_pago").gte("fecha_pago", "2026-05-01");
-  if (e2) { console.error("[cartera] barrido: error leyendo pagos:", e2.message); return; }
-  const { data: yaEnviados } = await cartera
-    .from("recordatorios_pago")
-    .select("credito_id, plantilla, estado")
-    .eq("mes_ref", mesRef)
-    .neq("estado", "ERROR");
+  let creditos, pagos, yaEnviados;
+  try {
+    creditos = await leerTodo("creditos", "*", (q) => q.eq("estado", "ACTIVO"));
+    pagos = await leerTodo("pagos", "id, credito_id, estado, fecha_pago", (q) => q.gte("fecha_pago", "2026-05-01"));
+    yaEnviados = await leerTodo("recordatorios_pago", "id, credito_id, plantilla, estado", (q) => q.eq("mes_ref", mesRef).neq("estado", "ERROR"));
+  } catch (e) {
+    console.error("[cartera] barrido ABORTADO (datos incompletos, no se envía nada):", e.message);
+    return;
+  }
+  // Seguro adicional: si hay créditos pero ni un solo pago, algo anda mal — no enviar.
+  if ((creditos || []).length > 3 && (pagos || []).length === 0) {
+    console.error("[cartera] barrido ABORTADO: 0 pagos leídos con " + creditos.length + " créditos activos.");
+    return;
+  }
   const ya = new Set((yaEnviados || []).map((r) => r.credito_id + "|" + r.plantilla));
 
   let encolados = 0;
