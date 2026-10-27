@@ -8,6 +8,8 @@
 //  3. PARAR: si el cliente dice que ya no le interesa, el agente usa la herramienta
 //     cliente_no_interesado y no se le vuelve a escribir. Si el cliente está conversando
 //     activamente (escribió en los últimos 5 días), el toque se aplaza — no interrumpimos.
+//  4. CRM: cada envío, conversión o descarte queda anotado como gestión en el CRM de CarteraNet
+//     (tabla seguimientos_crm) y actualiza el estado del prospecto (DESEMBOLSADO / PERDIDO).
 // Requiere: plantilla seguimiento_cotizacion aprobada en Meta (2 variables: nombre, moto/crédito)
 // y la tabla seguimientos_cotizacion en la base del AGENTE (ver SQL).
 
@@ -108,6 +110,26 @@ export async function sincronizarCotizaciones() {
   }
 }
 
+// Anota la gestión en el CRM de CarteraNet (tabla seguimientos_crm, mismo formato de la app)
+// y opcionalmente actualiza el estado del prospecto (CONTACTADO/DESEMBOLSADO/PERDIDO...).
+async function anotarCRM(prospectoId, nota, nuevoEstado) {
+  if (!cartera || !prospectoId) return;
+  try {
+    await cartera.from("seguimientos_crm").insert({
+      id: "SEG-" + Date.now() + "-" + Math.floor(Math.random() * 1000),
+      prospecto_id: prospectoId,
+      tipo: "WHATSAPP",
+      fecha: fechaColombia(),
+      nota,
+      registrado_por: "Agente HondaSur",
+      created_at: new Date().toISOString(),
+    });
+    if (nuevoEstado) await cartera.from("prospectos").update({ estado: nuevoEstado }).eq("id", prospectoId);
+  } catch (e) {
+    console.error("[seguimientos] no se pudo anotar en el CRM:", e?.message);
+  }
+}
+
 // ── 2) Enviar los seguimientos vencidos (una vez al día) ─────────────────────
 let ultimoEnvio = "";
 export async function enviarSeguimientos() {
@@ -133,6 +155,7 @@ export async function enviarSeguimientos() {
     const { data: cred } = await cartera.from("creditos").select("id").eq("estado", "ACTIVO").ilike("telefono", "%" + s.telefono.slice(-10)).limit(1);
     if (cred && cred.length) {
       await agente.from("seguimientos_cotizacion").update({ estado: "CONVERTIDO" }).eq("id", s.id);
+      await anotarCRM(s.prospecto_id, "🎉 El cliente compró: se detectó crédito activo en la cartera. Seguimiento cerrado.", "DESEMBOLSADO");
       continue;
     }
     // ¿Está conversando activamente? No interrumpir: aplazar sin gastar intento.
@@ -153,6 +176,9 @@ export async function enviarSeguimientos() {
         intentos, proximo: fechaColombia(DIAS_ENTRE_TOQUES),
         estado: intentos >= MAX_INTENTOS ? "AGOTADO" : "ACTIVO",
       }).eq("id", s.id);
+      await anotarCRM(s.prospecto_id,
+        "Seguimiento automático " + intentos + " de " + MAX_INTENTOS + " enviado por WhatsApp: ¿sigue interesado en " + s.moto + "?" +
+        (intentos >= MAX_INTENTOS ? " ÚLTIMO toque: si no responde, queda en manos del equipo." : ""));
       // Dejar constancia en el chat, para que el equipo lo vea en el Centro de Chats
       await agente.from("mensajes").insert({
         telefono: s.telefono, rol: "assistant",
@@ -177,8 +203,12 @@ export const HERRAMIENTA_NO_INTERESADO = {
 export async function marcarNoInteresado(telefono) {
   if (!agente) return { ok: false };
   const tel = telWA(telefono) || telefono;
+  const { data: segs } = await agente.from("seguimientos_cotizacion").select("prospecto_id").eq("telefono", tel);
   await agente.from("seguimientos_cotizacion").update({ estado: "DETENIDO" }).eq("telefono", tel).eq("estado", "ACTIVO");
   await agente.from("conversaciones").upsert({ telefono: tel, lead_etapa: "Descartado" });
+  for (const s of segs || []) {
+    await anotarCRM(s.prospecto_id, "El cliente respondió por WhatsApp que YA NO está interesado. Seguimiento detenido.", "PERDIDO");
+  }
   return { ok: true, mensaje: "Seguimiento detenido: no se le volverá a escribir sobre la cotización. Despídete con amabilidad." };
 }
 
