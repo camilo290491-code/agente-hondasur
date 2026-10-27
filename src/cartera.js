@@ -231,6 +231,8 @@ async function barridoDiario() {
   let encolados = 0;
   for (const cr of creditos || []) {
     if (cr.sin_recordatorios === true || cr.sin_recordatorios === "true") continue;
+    // Difícil recaudo = ya está en proceso con abogado: el sistema NO le escribe
+    if (cr.dificil_recaudo === true || cr.dificil_recaudo === "true") continue;
     const tel = telWA(cr.telefono);
     if (!tel) continue;
 
