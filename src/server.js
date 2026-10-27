@@ -16,6 +16,8 @@ import {
 } from "./tallernet.js";
 // NUEVO — recordatorios de pago de CarteraNet
 import { iniciarRecordatoriosCartera } from "./cartera.js";
+// NUEVO — clasificación de chats (ventas / taller / cartera)
+import { iniciarClasificacion } from "./clasificar.js";
 
 const app = express();
 app.use(express.json());
@@ -112,4 +114,5 @@ app.listen(PORT, () => {
   iniciarEnvioManual(enviarWhatsApp); // mensajes escritos desde el Centro de Chats
   iniciarAvisosMotoLista();           // NUEVO — aviso al cliente cuando su moto está lista
   iniciarRecordatoriosCartera();      // NUEVO — recordatorios de pago de CarteraNet
+  iniciarClasificacion();             // NUEVO — separa chats de ventas, taller y cartera
 });
