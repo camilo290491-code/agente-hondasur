@@ -57,16 +57,18 @@ export async function clasificarConversaciones() {
   if (!agente || clasificando) return;
   clasificando = true;
   try {
-    // Conversaciones sin etiqueta o sin nombre
-    const { data: convs, error } = await agente
-      .from("conversaciones")
-      .select("telefono, categoria, categoria_manual, nombre")
-      .or("categoria.is.null,nombre.is.null")
-      .limit(300);
-    if (error) { console.error("[clasificar] error leyendo conversaciones:", error.message); return; }
-    const pendientes = (convs || []).filter(
-      (c) => !c.categoria_manual && c.telefono && !String(c.telefono).startsWith("ig:")
-    );
+    // Conversaciones existentes (todas, para saber cuáles ya tienen etiqueta/nombre)
+    const convs = await paginado(agente, "conversaciones", "telefono, categoria, categoria_manual, nombre");
+    const fichas = {}; (convs || []).forEach((c) => { fichas[c.telefono] = c; });
+    // Teléfonos que han escrito (puede haber chats SIN ficha en conversaciones)
+    const tels = new Set();
+    const msjs = await paginado(agente, "mensajes", "telefono");
+    (msjs || []).forEach((m) => { if (m.telefono) tels.add(m.telefono); });
+    Object.keys(fichas).forEach((t) => tels.add(t));
+    const pendientes = [...tels]
+      .filter((t) => t && !String(t).startsWith("ig:"))
+      .map((t) => fichas[t] || { telefono: t, categoria: null, categoria_manual: false, nombre: null })
+      .filter((c) => !c.categoria_manual && (!c.categoria || !c.nombre));
     if (!pendientes.length) return;
 
     // Teléfonos (y nombres) de clientes de CARTERA (créditos activos)
@@ -100,8 +102,7 @@ export async function clasificarConversaciones() {
       if (!Object.keys(cambios).length) continue;
       const { error: e2 } = await agente
         .from("conversaciones")
-        .update(cambios)
-        .eq("telefono", c.telefono);
+        .upsert({ telefono: c.telefono, ...cambios });
       if (!e2) n++;
     }
     if (n) console.log(`[clasificar] ${n} conversaciones etiquetadas o con nombre puesto.`);
