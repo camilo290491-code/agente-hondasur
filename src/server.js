@@ -14,6 +14,8 @@ import {
   iniciarRecordatoriosCitas,
   iniciarAvisosMotoLista,
 } from "./tallernet.js";
+// NUEVO — recordatorios de pago de CarteraNet
+import { iniciarRecordatoriosCartera } from "./cartera.js";
 
 const app = express();
 app.use(express.json());
@@ -109,4 +111,5 @@ app.listen(PORT, () => {
   iniciarRecordatoriosCitas();  // recordatorio de cita el día anterior
   iniciarEnvioManual(enviarWhatsApp); // mensajes escritos desde el Centro de Chats
   iniciarAvisosMotoLista();           // NUEVO — aviso al cliente cuando su moto está lista
+  iniciarRecordatoriosCartera();      // NUEVO — recordatorios de pago de CarteraNet
 });
