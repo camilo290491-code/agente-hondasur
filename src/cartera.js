@@ -201,9 +201,12 @@ async function barridoDiario() {
   ultimoBarrido = hoyStr; // aunque falle algo abajo, no reintenta en bucle hasta mañana
 
   // Configuración del panel
-  const { data: cf } = await cartera.from("config").select("*").in("clave", ["recordatorios_auto", "recordatorio_dias_antes"]);
+  const { data: cf } = await cartera.from("config").select("*").in("clave", ["recordatorios_auto", "recordatorio_dias_antes", "recordatorios_revision"]);
   const auto = (cf || []).find((r) => r.clave === "recordatorios_auto")?.valor === "SI";
   const diasAntes = Number((cf || []).find((r) => r.clave === "recordatorio_dias_antes")?.valor) || 3;
+  // Visto bueno: salvo que esté EXPLÍCITAMENTE en "NO", el barrido deja todo
+  // "PENDIENTE" y solo se envía lo que el equipo apruebe en el panel.
+  const conRevision = ((cf || []).find((r) => r.clave === "recordatorios_revision")?.valor || "SI") !== "NO";
   if (!auto) { console.log("[cartera] barrido: envío automático apagado."); return; }
 
   const hoy = hoyCol();
@@ -249,12 +252,12 @@ async function barridoDiario() {
       plantilla,
       variables: variablesDe(cr, plantilla, mesesSin, hoy),
       mes_ref: mesRef,
-      estado: "SOLICITADO",
+      estado: conRevision ? "PENDIENTE" : "SOLICITADO",
       solicitado_por: "auto",
     });
     if (!error) encolados++;
   }
-  console.log(`[cartera] barrido ${hoyStr}: ${encolados} recordatorios encolados.`);
+  console.log(`[cartera] barrido ${hoyStr}: ${encolados} recordatorios ` + (conRevision ? "PENDIENTES de visto bueno en el panel." : "encolados para envío."));
 }
 
 export function iniciarRecordatoriosCartera() {
