@@ -57,11 +57,11 @@ export async function clasificarConversaciones() {
   if (!agente || clasificando) return;
   clasificando = true;
   try {
-    // Conversaciones sin etiqueta automática ni manual
+    // Conversaciones sin etiqueta o sin nombre
     const { data: convs, error } = await agente
       .from("conversaciones")
-      .select("telefono, categoria, categoria_manual")
-      .is("categoria", null)
+      .select("telefono, categoria, categoria_manual, nombre")
+      .or("categoria.is.null,nombre.is.null")
       .limit(300);
     if (error) { console.error("[clasificar] error leyendo conversaciones:", error.message); return; }
     const pendientes = (convs || []).filter(
@@ -69,20 +69,22 @@ export async function clasificarConversaciones() {
     );
     if (!pendientes.length) return;
 
-    // Teléfonos de clientes de CARTERA (créditos activos)
+    // Teléfonos (y nombres) de clientes de CARTERA (créditos activos)
     let telsCartera = new Set();
+    const nombres = {}; // tel normalizado -> nombre
+    const anotar = (tel, nom) => { if (nom) variantes(tel).forEach((t) => { if (!nombres[t]) nombres[t] = String(nom).trim(); }); };
     if (cartera) {
-      const data = await paginado(cartera, "creditos", "telefono", (q) => q.eq("estado", "ACTIVO"));
-      data.forEach((r) => variantes(r.telefono).forEach((t) => telsCartera.add(t)));
+      const data = await paginado(cartera, "creditos", "telefono, cliente", (q) => q.eq("estado", "ACTIVO"));
+      data.forEach((r) => { variantes(r.telefono).forEach((t) => telsCartera.add(t)); anotar(r.telefono, r.cliente); });
     }
-    // Teléfonos con historia en el TALLER (citas o servicios)
+    // Teléfonos (y nombres) con historia en el TALLER (citas o servicios)
     let telsTaller = new Set();
     if (taller) {
       const [c1, c2] = await Promise.all([
-        paginado(taller, "citas", "telefono", (q) => q.not("telefono", "is", null)),
-        paginado(taller, "registros", "telefono", (q) => q.not("telefono", "is", null)),
+        paginado(taller, "citas", "telefono, cliente", (q) => q.not("telefono", "is", null)),
+        paginado(taller, "registros", "telefono, cliente", (q) => q.not("telefono", "is", null)),
       ]);
-      [...c1, ...c2].forEach((r) => variantes(r.telefono).forEach((t) => telsTaller.add(t)));
+      [...c1, ...c2].forEach((r) => { variantes(r.telefono).forEach((t) => telsTaller.add(t)); anotar(r.telefono, r.cliente); });
     }
 
     let n = 0;
@@ -91,14 +93,18 @@ export async function clasificarConversaciones() {
       let cat = null;
       if (vs.some((t) => telsCartera.has(t))) cat = "cartera";
       else if (vs.some((t) => telsTaller.has(t))) cat = "taller";
-      if (!cat) continue; // ventas se infiere por contenido en el panel
+      const nom = vs.map((t) => nombres[t]).find(Boolean) || null;
+      const cambios = {};
+      if (cat && !c.categoria) cambios.categoria = cat;
+      if (nom && !c.nombre) cambios.nombre = nom;
+      if (!Object.keys(cambios).length) continue;
       const { error: e2 } = await agente
         .from("conversaciones")
-        .update({ categoria: cat })
+        .update(cambios)
         .eq("telefono", c.telefono);
       if (!e2) n++;
     }
-    if (n) console.log(`[clasificar] ${n} conversaciones etiquetadas.`);
+    if (n) console.log(`[clasificar] ${n} conversaciones etiquetadas o con nombre puesto.`);
   } finally {
     clasificando = false;
   }
