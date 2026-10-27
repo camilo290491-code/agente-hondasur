@@ -94,6 +94,7 @@ export async function sincronizarCotizaciones() {
       if (!conv || !conv.es_lead) {
         await agente.from("conversaciones").upsert({
           telefono: tel, es_lead: true, lead_etapa: "Nuevo",
+          nombre: p.nombre || null,
           lead_moto: p.tipo_cotizacion === "MOTO" ? (p.nombre_moto || null) : null,
           lead_resumen: (p.nombre || "Cliente") + " · cotización de crédito hecha en el almacén (CarteraNet) · " + (p.tipo_cotizacion === "MOTO" ? (p.nombre_moto || "moto") : "crédito en efectivo"),
           lead_marcado_at: new Date().toISOString(),
