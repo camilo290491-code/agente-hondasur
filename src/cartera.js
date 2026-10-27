@@ -262,6 +262,73 @@ async function barridoDiario() {
   console.log(`[cartera] barrido ${hoyStr}: ${encolados} recordatorios ` + (conRevision ? "PENDIENTES de visto bueno en el panel." : "encolados para envío."));
 }
 
+// ============================================================
+// 3) HERRAMIENTA DEL AGENTE: consultar el estado del crédito
+//    Seguridad: el teléfono del chat debe coincidir con el del crédito
+//    Y el cliente debe dar su cédula (verificación de identidad).
+// ============================================================
+export const HERRAMIENTA_CARTERA = {
+  name: "consultar_estado_credito",
+  description:
+    "Consulta el estado del crédito de moto del cliente en la cartera de HondaSur: cuota mensual, día de pago, cuotas pagadas del total, y si está al día o en mora. SOLO funciona para el crédito registrado con el MISMO número de WhatsApp del chat. SEGURIDAD OBLIGATORIA: antes de llamarla debes pedirle al cliente su número de cédula y pasarlo en 'cedula'; sin cédula verificada no se entrega información.",
+  input_schema: {
+    type: "object",
+    properties: {
+      cedula: { type: "string", description: "Número de cédula que el cliente escribió en el chat, solo dígitos" },
+    },
+    required: ["cedula"],
+  },
+};
+
+function variantesTel(t) {
+  const d = String(t || "").replace(/\D/g, "");
+  const v = new Set();
+  if (d) v.add(d);
+  if (d.length === 12 && d.startsWith("57")) v.add(d.slice(2));
+  if (d.length === 10 && d.startsWith("3")) v.add("57" + d);
+  return [...v];
+}
+
+export async function consultarEstadoCredito(telefono, input) {
+  if (!cartera) return { error: "La consulta de créditos no está disponible en este momento." };
+  const cedula = String(input?.cedula || "").replace(/\D/g, "");
+  if (!cedula || cedula.length < 5) return { verificacion: "FALTA_CEDULA", mensaje: "Pide al cliente su número de cédula antes de consultar." };
+
+  // Buscar créditos ACTIVOS cuyo teléfono coincida con el del chat
+  const vs = variantesTel(telefono);
+  const { data: todos, error } = await cartera.from("creditos").select("*").eq("estado", "ACTIVO");
+  if (error) return { error: "No se pudo consultar la cartera: " + error.message };
+  const mios = (todos || []).filter((cr) => variantesTel(cr.telefono).some((t) => vs.includes(t)));
+  if (!mios.length) return { sin_credito: true, mensaje: "Este número de WhatsApp no tiene créditos activos registrados. Si el cliente cree que es un error, invítalo a acercarse al almacén o a llamar." };
+
+  // Verificación de identidad: la cédula debe coincidir
+  const verificados = mios.filter((cr) => String(cr.cedula || "").replace(/\D/g, "") === cedula);
+  if (!verificados.length) return { verificacion: "CEDULA_NO_COINCIDE", mensaje: "La cédula no coincide con la registrada en el crédito. Por seguridad NO entregues ningún dato; invítalo a acercarse al almacén con su documento." };
+
+  const hoy = hoyCol();
+  const resumenes = [];
+  for (const cr of verificados) {
+    if (cr.dificil_recaudo === true || cr.dificil_recaudo === "true") {
+      resumenes.push({ credito: cr.id, en_proceso_juridico: true, mensaje: "Este crédito está en proceso de cobro jurídico: NO des detalles de saldos; dile que debe comunicarse directamente con el almacén para gestionar su caso." });
+      continue;
+    }
+    const { data: pcs } = await cartera.from("pagos").select("credito_id, estado, fecha_pago").eq("credito_id", cr.id).eq("estado", "ACTIVO").order("fecha_pago", { ascending: false }).limit(1000);
+    const pagosCr = pcs || [];
+    const { mesesSin, pagoEsteMes } = moraViva(cr, pagosCr, hoy);
+    resumenes.push({
+      credito: cr.id,
+      articulo: cr.articulo || "moto",
+      cuota_mensual: fmt(cuotaDe(cr)),
+      dia_de_pago: "el día " + (cr.dia_pago || 1) + " de cada mes",
+      cuotas_pagadas: pagosCr.length + " de " + (cr.plazo || "?"),
+      ultimo_pago: pagosCr[0]?.fecha_pago || "sin pagos registrados desde mayo 2026",
+      estado: mesesSin === 0 ? (pagoEsteMes ? "AL DÍA (ya pagó este mes)" : "AL DÍA (la cuota de este mes aún no vence)") : "EN MORA: " + mesesSin + (mesesSin === 1 ? " cuota vencida" : " cuotas vencidas"),
+      nota: "Los valores exactos de saldo total o para cancelar anticipado se confirman en el almacén.",
+    });
+  }
+  return { creditos: resumenes };
+}
+
 export function iniciarRecordatoriosCartera() {
   if (!cartera) return;
   despacharCola(); // al arrancar, despacha lo que haya quedado en cola
