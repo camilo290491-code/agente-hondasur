@@ -270,7 +270,7 @@ async function barridoDiario() {
 export const HERRAMIENTA_CARTERA = {
   name: "consultar_estado_credito",
   description:
-    "Consulta el estado del crédito de moto del cliente en la cartera de HondaSur: cuota mensual, día de pago, cuotas pagadas del total, y si está al día o en mora. SOLO funciona para el crédito registrado con el MISMO número de WhatsApp del chat. SEGURIDAD OBLIGATORIA: antes de llamarla debes pedirle al cliente su número de cédula y pasarlo en 'cedula'; sin cédula verificada no se entrega información.",
+    "Consulta el estado del crédito de moto del cliente en la cartera de HondaSur: si está al día o en mora, cuántas cuotas vencidas tiene, cuántas lleva pagadas del total y su día de pago. NO entrega valores en pesos, tasas ni saldos. SOLO funciona para el crédito registrado con el MISMO número de WhatsApp del chat. SEGURIDAD OBLIGATORIA: antes de llamarla debes pedirle al cliente su número de cédula y pasarlo en 'cedula'; sin cédula verificada no se entrega información.",
   input_schema: {
     type: "object",
     properties: {
@@ -318,12 +318,11 @@ export async function consultarEstadoCredito(telefono, input) {
     resumenes.push({
       credito: cr.id,
       articulo: cr.articulo || "moto",
-      cuota_mensual: fmt(cuotaDe(cr)),
       dia_de_pago: "el día " + (cr.dia_pago || 1) + " de cada mes",
       cuotas_pagadas: pagosCr.length + " de " + (cr.plazo || "?"),
       ultimo_pago: pagosCr[0]?.fecha_pago || "sin pagos registrados desde mayo 2026",
       estado: mesesSin === 0 ? (pagoEsteMes ? "AL DÍA (ya pagó este mes)" : "AL DÍA (la cuota de este mes aún no vence)") : "EN MORA: " + mesesSin + (mesesSin === 1 ? " cuota vencida" : " cuotas vencidas"),
-      nota: "Los valores exactos de saldo total o para cancelar anticipado se confirman en el almacén.",
+      nota: "Esta consulta no entrega valores en pesos: el valor de la cuota, saldos, tasas o cancelación anticipada se confirman únicamente en el almacén.",
     });
   }
   return { creditos: resumenes };
