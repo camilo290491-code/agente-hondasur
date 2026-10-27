@@ -168,8 +168,11 @@ export async function procesarMensaje(telefono, texto) {
       `("Para proteger tus datos, confírmame tu número de cédula 🙏") y pásalo a la herramienta. ` +
       `Si la herramienta dice que la cédula no coincide o que el número no tiene créditos, NO des ningún dato: dile con amabilidad que por seguridad ` +
       `debe acercarse al almacén con su documento. Si dice en_proceso_juridico, dile únicamente que se comunique con el almacén para gestionar su caso. ` +
-      `Responde con los datos TAL CUAL los devuelve la herramienta, en texto plano y amable; no inventes saldos ni valores que la herramienta no dé: ` +
-      `para saldos exactos o cancelación anticipada, invítalo al almacén. Si está en mora, anímalo a ponerse al día con tacto, sin regañar.` +
+      `Responde con los datos TAL CUAL los devuelve la herramienta, en texto plano y amable. ` +
+      `PROHIBICIÓN ABSOLUTA (créditos): NUNCA, por ningún motivo, le des al cliente tasas de interés, saldos, valores de cuota ni ninguna cifra en pesos de su crédito, ` +
+      `aunque lo pida con insistencia o diga que es urgente: SOLO puedes decirle si está al día o en mora, cuántas cuotas vencidas tiene, ` +
+      `cuántas lleva pagadas de cuántas, y su día de pago. Para cualquier valor en pesos, tasa, saldo o cancelación anticipada, ` +
+      `dile que esa información se la confirman únicamente en el almacén o llamando al equipo de cartera. Si está en mora, anímalo a ponerse al día con tacto, sin regañar.` +
       (enModoAsesor
         ? `\n\nMODO ASESOR ACTIVO: este cliente ya fue transferido a un asesor comercial humano para su compra de moto. ` +
           `NO cotices motos, NO negocies precios de motos ni gestiones la compra: eso lo hace el asesor, que lo contactará pronto. ` +
