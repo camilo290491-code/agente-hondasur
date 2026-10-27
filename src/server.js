@@ -18,6 +18,8 @@ import {
 import { iniciarRecordatoriosCartera } from "./cartera.js";
 // NUEVO — clasificación de chats (ventas / taller / cartera)
 import { iniciarClasificacion } from "./clasificar.js";
+// NUEVO — seguimiento de cotizaciones de CarteraNet
+import { iniciarSeguimientosCotizacion } from "./seguimientos.js";
 
 const app = express();
 app.use(express.json());
@@ -115,4 +117,5 @@ app.listen(PORT, () => {
   iniciarAvisosMotoLista();           // NUEVO — aviso al cliente cuando su moto está lista
   iniciarRecordatoriosCartera();      // NUEVO — recordatorios de pago de CarteraNet
   iniciarClasificacion();             // NUEVO — separa chats de ventas, taller y cartera
+  iniciarSeguimientosCotizacion();    // NUEVO — retoma cotizaciones de CarteraNet hasta que respondan
 });
