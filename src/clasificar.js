@@ -81,11 +81,15 @@ export async function clasificarConversaciones() {
     }
     // Teléfonos (y nombres) con historia en el TALLER (citas o servicios)
     let telsTaller = new Set();
+    let citasT = [], regsT = [], servNom = {};
     if (taller) {
-      const [c1, c2] = await Promise.all([
-        paginado(taller, "citas", "telefono, cliente", (q) => q.not("telefono", "is", null)),
-        paginado(taller, "registros", "telefono, cliente", (q) => q.not("telefono", "is", null)),
+      const [c1, c2, c3] = await Promise.all([
+        paginado(taller, "citas", "telefono, cliente, fecha, hora_inicio, servicio_id, estado, placa, modelo", (q) => q.not("telefono", "is", null)),
+        paginado(taller, "registros", "telefono, cliente, placa, marca_modelo, kilometraje, servicio_id, estado, entrada, salida", (q) => q.not("telefono", "is", null)),
+        paginado(taller, "servicios", "id, nombre"),
       ]);
+      citasT = c1; regsT = c2;
+      (c3 || []).forEach((s) => { servNom[s.id] = s.nombre; });
       [...c1, ...c2].forEach((r) => { variantes(r.telefono).forEach((t) => telsTaller.add(t)); anotar(r.telefono, r.cliente); });
     }
 
@@ -106,6 +110,43 @@ export async function clasificarConversaciones() {
       if (!e2) n++;
     }
     if (n) console.log(`[clasificar] ${n} conversaciones etiquetadas o con nombre puesto.`);
+
+    // ── FICHA DE TALLER por teléfono (para verla dentro del chat) ──────────────
+    if (taller) {
+      const norm = (t) => { const d = String(t || "").replace(/\D/g, ""); return d.length === 10 && d.startsWith("3") ? "57" + d : d; };
+      const hoyISO = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
+      const fichasT = {};
+      const fDe = (t) => (fichasT[t] = fichasT[t] || { motos: {}, proxima_cita: null, orden_activa: null, ultima_visita: null, total_servicios: 0 });
+      for (const r of regsT) {
+        const t = norm(r.telefono); if (!t) continue;
+        const f = fDe(t);
+        if (r.placa) f.motos[r.placa] = { placa: r.placa, modelo: r.marca_modelo || f.motos[r.placa]?.modelo || "", km: r.kilometraje || f.motos[r.placa]?.km || null };
+        const serv = servNom[r.servicio_id] || "Servicio";
+        if (r.estado === "ENTREGADA") {
+          f.total_servicios++;
+          const fecha = (r.salida || r.entrada || "").slice(0, 10);
+          if (!f.ultima_visita || fecha > f.ultima_visita.fecha) f.ultima_visita = { fecha, servicio: serv, placa: r.placa || "" };
+        } else if (r.estado && r.estado !== "ANULADA") {
+          f.orden_activa = { estado: r.estado, servicio: serv, placa: r.placa || "", desde: (r.entrada || "").slice(0, 10) };
+        }
+      }
+      for (const c of citasT) {
+        const t = norm(c.telefono); if (!t) continue;
+        const f = fDe(t);
+        if (c.estado === "Agendada" && c.fecha >= hoyISO) {
+          const cand = { fecha: c.fecha, hora: String(c.hora_inicio || "").slice(0, 5), servicio: servNom[c.servicio_id] || "Servicio", placa: c.placa || "", modelo: c.modelo || "" };
+          if (!f.proxima_cita || cand.fecha < f.proxima_cita.fecha) f.proxima_cita = cand;
+        }
+        if (c.modelo && c.placa && !f.motos[c.placa]) f.motos[c.placa] = { placa: c.placa, modelo: c.modelo, km: null };
+      }
+      let nf = 0;
+      for (const [t, f] of Object.entries(fichasT)) {
+        const datos = { ...f, motos: Object.values(f.motos) };
+        const { error: e3 } = await agente.from("taller_fichas").upsert({ telefono: t, datos, actualizado: new Date().toISOString() });
+        if (!e3) nf++;
+      }
+      if (nf) console.log(`[clasificar] ${nf} fichas de taller actualizadas.`);
+    }
   } finally {
     clasificando = false;
   }
