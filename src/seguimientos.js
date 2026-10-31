@@ -72,6 +72,7 @@ export async function bajarCotizacionesChat() {
       if (proximo <= fechaColombia()) proximo = fechaColombia(1);
       const { error: e1 } = await agente.from("seguimientos_cotizacion").insert({
         prospecto_id: refId, telefono: tel, nombre: c.nombre || "", moto, intentos: 0, proximo, estado: "ACTIVO",
+        cotizado_el: String(c.created_at || "").slice(0, 10) || fechaColombia(),
       });
       if (e1) { console.error("[cotizador] error creando seguimiento:", e1.message); continue; }
 
@@ -170,6 +171,7 @@ export async function sincronizarCotizaciones() {
 
       const { error: e1 } = await agente.from("seguimientos_cotizacion").insert({
         prospecto_id: p.id, telefono: tel, nombre: p.nombre || "", moto, intentos: 0, proximo, estado: "ACTIVO",
+        cotizado_el: String(p.created_at || "").slice(0, 10) || fechaColombia(),
       });
       if (e1) { console.error("[seguimientos] error insertando:", e1.message); continue; }
 
@@ -234,8 +236,11 @@ export async function enviarSeguimientos() {
       await agente.from("seguimientos_cotizacion").update({ estado: "DETENIDO" }).eq("id", s.id);
       continue;
     }
-    // ¿Ya es cliente de cartera? (compró: misión cumplida)
-    const { data: cred } = await cartera.from("creditos").select("id").eq("estado", "ACTIVO").ilike("telefono", "%" + s.telefono.slice(-10)).limit(1);
+    // ¿Compró? Solo cuenta un crédito desembolsado EN o DESPUÉS de la fecha de
+    // la cotización — un crédito viejo que ya tenía el cliente NO es una conversión.
+    const corte = s.cotizado_el || String(s.created_at || "").slice(0, 10) || null;
+    const { data: creds } = await cartera.from("creditos").select("id, fecha_desembolso").eq("estado", "ACTIVO").ilike("telefono", "%" + s.telefono.slice(-10)).limit(10);
+    const cred = (creds || []).filter((c) => !corte || !c.fecha_desembolso || String(c.fecha_desembolso).slice(0, 10) >= corte);
     if (cred && cred.length) {
       await agente.from("seguimientos_cotizacion").update({ estado: "CONVERTIDO" }).eq("id", s.id);
       await anotarCRM(s.prospecto_id, "🎉 El cliente compró: se detectó crédito activo en la cartera. Seguimiento cerrado.", "DESEMBOLSADO");
