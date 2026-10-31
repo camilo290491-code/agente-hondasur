@@ -92,6 +92,46 @@ export async function bajarCotizacionesChat() {
   }
 }
 
+// ── 0b) Envíos manuales: el equipo pulsa "Enviar ahora" en la app ───────────
+// La app encola en seguimientos_manuales y aquí se despacha (plantilla
+// seguimiento_cotizacion) revisando cada minuto. Un envío manual NO gasta los
+// 3 toques automáticos, pero sí aplaza el próximo automático 7 días para no
+// escribirle dos veces seguidas al mismo cliente.
+let despachandoManuales = false;
+export async function despacharManuales() {
+  if (!agente || despachandoManuales) return;
+  despachandoManuales = true;
+  try {
+    const { data: pend, error } = await agente.from("seguimientos_manuales").select("*").eq("estado", "PENDIENTE").limit(20);
+    if (error) { console.error("[manual] error leyendo cola:", error.message); return; }
+    for (const m of pend || []) {
+      const tel = telWA(m.telefono);
+      if (!tel) { await agente.from("seguimientos_manuales").update({ estado: "ERROR", error: "celular inválido" }).eq("id", m.id); continue; }
+      const nombre = primerNombre(m.nombre);
+      const moto = m.moto || "el crédito que cotizaste";
+      const idioma = process.env.TEMPLATE_IDIOMA || "es_CO";
+      let e = await enviarWhatsAppPlantilla(tel, "seguimiento_cotizacion", idioma, [nombre, moto], []);
+      if (!e.ok) e = await enviarWhatsAppPlantilla(tel, "seguimiento_cotizacion", idioma === "es" ? "es_CO" : "es", [nombre, moto], []);
+      if (e.ok) {
+        await agente.from("seguimientos_manuales").update({ estado: "ENVIADO" }).eq("id", m.id);
+        await agente.from("mensajes").insert({
+          telefono: tel, rol: "assistant",
+          contenido: "Hola " + nombre + ", te saluda HondaSur 👋 Hace unos días te cotizamos " + moto + " y queremos saber si sigues interesado. Respóndenos por aquí y con gusto resolvemos tus dudas o te ayudamos a dar el paso 🏍 Si prefieres que no te escribamos más sobre esto, solo dínoslo.",
+        });
+        // Aplazar el automático para no duplicar
+        await agente.from("seguimientos_cotizacion").update({ proximo: fechaColombia(DIAS_ENTRE_TOQUES) }).eq("telefono", tel).eq("estado", "ACTIVO");
+        console.log("[manual] recordatorio enviado a", m.nombre || tel);
+      } else {
+        await agente.from("seguimientos_manuales").update({ estado: "ERROR", error: String(e.error || "falló el envío").slice(0, 200) }).eq("id", m.id);
+        console.error("[manual] FALLÓ el envío a", tel, e.error || "");
+      }
+      await new Promise((ok) => setTimeout(ok, 1200));
+    }
+  } finally {
+    despachandoManuales = false;
+  }
+}
+
 // ── 1) Sincronizar cotizaciones nuevas de CarteraNet ─────────────────────────
 let sincronizando = false;
 export async function sincronizarCotizaciones() {
@@ -264,5 +304,6 @@ export function iniciarSeguimientosCotizacion() {
   ciclo();
   setInterval(ciclo, 5 * 60 * 1000);           // ciclo completo cada 5 min
   setInterval(enviarSeguimientos, 15 * 60 * 1000); // envía a las 10 am (revisa cada 15 min)
+  setInterval(despacharManuales, 60 * 1000);       // despacha los "Enviar ahora" cada minuto
   console.log("[seguimientos] seguimiento de cotizaciones iniciado.");
 }
