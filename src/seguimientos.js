@@ -51,57 +51,44 @@ function primerNombre(n) {
 }
 
 // ── 0) Cotizador de la pestaña Atención al cliente ──────────────────────────
-// a) Publica la tasa y el catálogo de motos de CarteraNet en la base del AGENTE
-//    (tabla cotizador_datos), para que la app de chats cotice sin tocar CarteraNet.
-// b) Baja las cotizaciones guardadas en la app de chats (tabla cotizaciones_chat)
-//    y las crea como prospectos en el CRM de CarteraNet; de ahí el seguimiento
-//    automático por WhatsApp arranca solo (mismo flujo de siempre).
-export async function publicarDatosCotizador() {
-  if (!agente || !cartera) return;
-  try {
-    let tasa = 2.5;
-    const { data: cf } = await cartera.from("config").select("valor").eq("clave", "tasa_mv").maybeSingle();
-    if (cf && cf.valor != null && Number(cf.valor) > 0) tasa = Number(cf.valor);
-    const { data: motos } = await cartera.from("catalogo_motos").select("id, modelo, precio_moto, valor_papeles").order("modelo");
-    const { error } = await agente.from("cotizador_datos").upsert({
-      clave: "cotizador",
-      valor: { tasa_mv: tasa, motos: motos || [] },
-      actualizado: new Date().toISOString(),
-    });
-    if (error) console.error("[cotizador] error publicando datos:", error.message);
-  } catch (e) {
-    console.error("[cotizador] no se pudieron publicar los datos:", e?.message);
-  }
-}
-
+// Las cotizaciones hechas en la app de chats (tabla cotizaciones_chat) NO tocan
+// CarteraNet: aquí mismo se les crea el plan de seguimiento por WhatsApp y se
+// marcan como ⭐ Cliente potencial en el panel. La tasa también vive en la base
+// del agente (cotizador_datos) y la administra el admin desde la propia app.
 export async function bajarCotizacionesChat() {
-  if (!agente || !cartera) return;
+  if (!agente) return;
   const { data: pend, error } = await agente.from("cotizaciones_chat").select("*").eq("sincronizada", false).limit(100);
   if (error) { console.error("[cotizador] error leyendo cotizaciones del chat:", error.message); return; }
   for (const c of pend || []) {
     const d = c.datos || {};
-    const id = "PRO-" + Date.now() + "-" + Math.floor(Math.random() * 100000);
-    const { error: e1 } = await cartera.from("prospectos").insert({
-      id,
-      nombre: c.nombre || "",
-      telefono: c.telefono || "",
-      cedula: c.cedula || "",
-      monto_solicitado: d.monto || 0,
-      estado: "COTIZADO",
-      origen: d.tipo === "MOTO" ? "COTIZACION MOTO" : "COTIZACION EFECTIVO",
-      tipo_cotizacion: d.tipo || "EFECTIVO",
-      nombre_moto: d.nombreMoto || "",
-      valor_moto: d.valorMoto || 0,
-      valor_papeles: d.valorPapeles || 0,
-      cuota_inicial: d.cuotaInicial || 0,
-      cotizacion_json: JSON.stringify(d.filas || []),
-      notas: "Cotizado desde Atención al cliente",
-      created_at: c.created_at || new Date().toISOString(),
-      creado_por: c.creado_por || "Atención al cliente",
-    });
-    if (e1) { console.error("[cotizador] error creando prospecto en CarteraNet:", e1.message); continue; }
-    await agente.from("cotizaciones_chat").update({ sincronizada: true, prospecto_id: id }).eq("id", c.id);
-    console.log("[cotizador] cotización de " + (c.nombre || c.telefono) + " pasó al CRM de CarteraNet (" + id + ").");
+    const refId = "CHAT-" + c.id; // referencia interna; no existe en el CRM de CarteraNet
+    const tel = telWA(c.telefono);
+    const moto = d.tipo === "MOTO" && d.nombreMoto ? "la " + d.nombreMoto : "el crédito que cotizaste";
+
+    if (tel) {
+      // Plan de seguimiento: primer toque a los 3 días de la cotización
+      const base = c.created_at ? new Date(c.created_at) : new Date();
+      let proximo = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date(base.getTime() + DIAS_PRIMER_TOQUE * 86400000));
+      if (proximo <= fechaColombia()) proximo = fechaColombia(1);
+      const { error: e1 } = await agente.from("seguimientos_cotizacion").insert({
+        prospecto_id: refId, telefono: tel, nombre: c.nombre || "", moto, intentos: 0, proximo, estado: "ACTIVO",
+      });
+      if (e1) { console.error("[cotizador] error creando seguimiento:", e1.message); continue; }
+
+      // Marcarlo como ⭐ Cliente potencial (sin pisar una etapa ya avanzada)
+      const { data: conv } = await agente.from("conversaciones").select("telefono, es_lead, lead_etapa").eq("telefono", tel).maybeSingle();
+      if (!conv || !conv.es_lead) {
+        await agente.from("conversaciones").upsert({
+          telefono: tel, es_lead: true, lead_etapa: "Nuevo",
+          nombre: c.nombre || null,
+          lead_moto: d.tipo === "MOTO" ? (d.nombreMoto || null) : null,
+          lead_resumen: (c.nombre || "Cliente") + " · cotización hecha en Atención al cliente · " + (d.tipo === "MOTO" ? (d.nombreMoto || "moto") : "crédito en efectivo"),
+          lead_marcado_at: new Date().toISOString(),
+        });
+      }
+    }
+    await agente.from("cotizaciones_chat").update({ sincronizada: true, prospecto_id: refId }).eq("id", c.id);
+    console.log("[cotizador] cotización de " + (c.nombre || c.telefono || "cliente") + (tel ? " entró a seguimiento." : " guardada (sin celular: sin seguimiento)."));
   }
 }
 
@@ -169,6 +156,7 @@ export async function sincronizarCotizaciones() {
 // y opcionalmente actualiza el estado del prospecto (CONTACTADO/DESEMBOLSADO/PERDIDO...).
 async function anotarCRM(prospectoId, nota, nuevoEstado) {
   if (!cartera || !prospectoId) return;
+  if (String(prospectoId).startsWith("CHAT-")) return; // cotización del chat: no está en el CRM de CarteraNet
   try {
     await cartera.from("seguimientos_crm").insert({
       id: "SEG-" + Date.now() + "-" + Math.floor(Math.random() * 1000),
@@ -270,9 +258,8 @@ export async function marcarNoInteresado(telefono) {
 export function iniciarSeguimientosCotizacion() {
   if (!agente || !cartera) return;
   const ciclo = async () => {
-    await publicarDatosCotizador();   // tasa + catálogo hacia la app de chats
-    await bajarCotizacionesChat();    // cotizaciones del chat hacia el CRM
-    await sincronizarCotizaciones();  // prospectos nuevos entran a seguimiento
+    await bajarCotizacionesChat();    // cotizaciones del chat entran a seguimiento
+    await sincronizarCotizaciones();  // y las de CarteraNet, como siempre
   };
   ciclo();
   setInterval(ciclo, 5 * 60 * 1000);           // ciclo completo cada 5 min
