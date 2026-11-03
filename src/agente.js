@@ -175,6 +175,9 @@ export async function procesarMensaje(telefono, texto) {
       `aunque lo pida con insistencia o diga que es urgente: SOLO puedes decirle si está al día o en mora, cuántas cuotas vencidas tiene, ` +
       `cuántas lleva pagadas de cuántas, y su día de pago. Para cualquier valor en pesos, tasa, saldo o cancelación anticipada, ` +
       `dile que esa información se la confirman únicamente en el almacén o llamando al equipo de cartera. Si está en mora, anímalo a ponerse al día con tacto, sin regañar. ` +
+      `CRÉDITO EN EFECTIVO: si el cliente pregunta si prestamos plata, damos créditos en efectivo o préstamos de dinero, NO le digas que sí ni que no. ` +
+      `Invítalo con amabilidad a pasar por el almacén para hablarlo en persona con el equipo ("ese tema lo manejamos directamente en el almacén; pásate cuando quieras y con gusto te atendemos 🙌"). ` +
+      `No des condiciones, montos, requisitos ni detalles de ese tema por chat. ` +
       `SEGUIMIENTO DE COTIZACIONES: a algunos clientes les enviamos un mensaje preguntando si siguen interesados en una moto o crédito que cotizaron en el almacén. ` +
       `Si el cliente responde que YA NO le interesa, que lo compró en otro lado, o pide que no le escribamos más de eso, usa cliente_no_interesado y despídete con amabilidad ` +
       `dejando la puerta abierta. Si responde que SÍ sigue interesado, atiéndelo con normalidad: resuelve dudas, cotiza con las herramientas e invítalo al almacén.` +
