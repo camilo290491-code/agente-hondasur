@@ -110,6 +110,74 @@ app.post("/webhook", async (req, res) => {
 
 app.get("/", (_, res) => res.send("Agente HondaSur activo 🏍️"));
 
+// ── Usuarios del equipo: el ADMIN crea/cambia/elimina asesoras desde la app ──
+// La app manda el token de sesión del admin; aquí se verifica que el token sea
+// real y que el correo esté en la lista de administradores. Solo entonces se usa
+// la llave maestra. Nunca viaja ninguna llave secreta al navegador.
+const ADMIN_CORREOS = ["camilo290491@gmail.com"];
+app.use((req, res, next) => {
+  if (req.path === "/usuarios") {
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Headers", "Content-Type");
+    res.header("Access-Control-Allow-Methods", "POST, OPTIONS");
+    if (req.method === "OPTIONS") return res.sendStatus(204);
+  }
+  next();
+});
+app.post("/usuarios", async (req, res) => {
+  try {
+    const { accion, correo, clave, token } = req.body || {};
+    const URL_SB = process.env.SUPABASE_URL, LLAVE = process.env.SUPABASE_KEY;
+    if (!URL_SB || !LLAVE) return res.json({ ok: false, error: "Servidor sin llaves." });
+    // 1) ¿Quién pide esto? Validar el token contra Supabase
+    const rQuien = await fetch(URL_SB + "/auth/v1/user", {
+      headers: { apikey: LLAVE, Authorization: "Bearer " + (token || "") },
+    });
+    const quien = rQuien.ok ? await rQuien.json() : null;
+    if (!quien || !ADMIN_CORREOS.includes(String(quien.email || "").toLowerCase()))
+      return res.json({ ok: false, error: "Solo el administrador puede gestionar usuarios." });
+    const correoLimpio = String(correo || "").trim().toLowerCase();
+    if (!correoLimpio.includes("@")) return res.json({ ok: false, error: "Escribe un correo válido." });
+    const cab = { apikey: LLAVE, Authorization: "Bearer " + LLAVE, "Content-Type": "application/json" };
+
+    if (accion === "crear") {
+      if (!clave || clave.length < 6) return res.json({ ok: false, error: "La contraseña debe tener al menos 6 caracteres." });
+      const r = await fetch(URL_SB + "/auth/v1/admin/users", {
+        method: "POST", headers: cab,
+        body: JSON.stringify({ email: correoLimpio, password: clave, email_confirm: true }),
+      });
+      const d = await r.json();
+      if (!r.ok) return res.json({ ok: false, error: (d.msg || d.message || "").includes("already") ? "Ese correo ya tiene usuario." : (d.msg || d.message || "No se pudo crear.") });
+      return res.json({ ok: true, mensaje: "Usuario creado: " + correoLimpio });
+    }
+
+    // Para cambiar clave o eliminar: buscar el usuario por correo
+    const rB = await fetch(URL_SB + "/auth/v1/admin/users?page=1&per_page=1000", { headers: cab });
+    const dB = await rB.json();
+    const u = (dB.users || dB || []).find?.((x) => String(x.email || "").toLowerCase() === correoLimpio);
+    if (!u) return res.json({ ok: false, error: "No encuentro un usuario con ese correo." });
+    if (ADMIN_CORREOS.includes(correoLimpio) && accion === "eliminar")
+      return res.json({ ok: false, error: "No puedes eliminar al administrador." });
+
+    if (accion === "clave") {
+      if (!clave || clave.length < 6) return res.json({ ok: false, error: "La contraseña debe tener al menos 6 caracteres." });
+      const r = await fetch(URL_SB + "/auth/v1/admin/users/" + u.id, {
+        method: "PUT", headers: cab, body: JSON.stringify({ password: clave }),
+      });
+      if (!r.ok) return res.json({ ok: false, error: "No se pudo cambiar la contraseña." });
+      return res.json({ ok: true, mensaje: "Contraseña cambiada para " + correoLimpio });
+    }
+    if (accion === "eliminar") {
+      const r = await fetch(URL_SB + "/auth/v1/admin/users/" + u.id, { method: "DELETE", headers: cab });
+      if (!r.ok) return res.json({ ok: false, error: "No se pudo eliminar." });
+      return res.json({ ok: true, mensaje: "Usuario eliminado: " + correoLimpio + ". Sus sesiones quedan fuera." });
+    }
+    return res.json({ ok: false, error: "Acción no válida." });
+  } catch (e) {
+    res.json({ ok: false, error: "Error del servidor: " + e.message });
+  }
+});
+
 // TEMPORAL — migración del taller (borrar estas dos rutas al terminar)
 const CLAVE_MIGRA = "hs-migra-7319";
 app.get("/migrar-taller", async (req, res) => {
