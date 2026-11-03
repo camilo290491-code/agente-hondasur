@@ -21,7 +21,7 @@ import { iniciarClasificacion } from "./clasificar.js";
 // NUEVO — seguimiento de cotizaciones de CarteraNet
 import { iniciarSeguimientosCotizacion } from "./seguimientos.js";
 // TEMPORAL — migración TallerNet → Supabase del agente (borrar al terminar)
-import { migrarTablasTaller, migrarFotosTaller } from "./migrar.js";
+import { migrarTablasTaller, migrarFotosTaller, generarEsquemaTaller } from "./migrar.js";
 
 const app = express();
 app.use(express.json());
@@ -115,6 +115,11 @@ const CLAVE_MIGRA = "hs-migra-7319";
 app.get("/migrar-taller", async (req, res) => {
   if (req.query.clave !== CLAVE_MIGRA) return res.status(403).send("Clave incorrecta.");
   try { res.type("text/plain; charset=utf-8").send(await migrarTablasTaller()); }
+  catch (e) { res.type("text/plain").send("ERROR: " + e.message); }
+});
+app.get("/migrar-esquema", async (req, res) => {
+  if (req.query.clave !== CLAVE_MIGRA) return res.status(403).send("Clave incorrecta.");
+  try { res.type("text/plain; charset=utf-8").send(await generarEsquemaTaller()); }
   catch (e) { res.type("text/plain").send("ERROR: " + e.message); }
 });
 app.get("/migrar-fotos", async (req, res) => {
