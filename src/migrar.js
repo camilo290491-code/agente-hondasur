@@ -83,6 +83,67 @@ export async function migrarTablasTaller() {
   return lineas.join("\n");
 }
 
+// ── Esquema: genera el SQL de las tablas leyendo la API del proyecto viejo ──
+// (así no hace falta entrar a la cuenta de Supabase del taller para nada)
+export async function generarEsquemaTaller() {
+  if (!process.env.TALLERNET_URL || !process.env.TALLERNET_SERVICE_KEY) return "Faltan llaves TALLERNET_* en Railway.";
+  if (process.env.TALLERNET_URL === process.env.SUPABASE_URL) return "TALLERNET_URL ya apunta al proyecto nuevo.";
+  const k = process.env.TALLERNET_SERVICE_KEY;
+  const r = await fetch(process.env.TALLERNET_URL + "/rest/v1/", { headers: { apikey: k, Authorization: "Bearer " + k } });
+  if (!r.ok) return "ERROR leyendo el esquema: HTTP " + r.status;
+  const j = await r.json();
+  const defs = j.definitions || {};
+  const tipoDe = (f) => {
+    if (!f) return "text";
+    if (f.endsWith("[]")) return f;
+    const m = { "character varying": "text", "timestamp without time zone": "timestamp", "timestamp with time zone": "timestamptz", "time without time zone": "time", "double precision": "double precision" };
+    if (m[f]) return m[f];
+    if (["bigint","integer","smallint","text","boolean","numeric","real","json","jsonb","uuid","date"].includes(f)) return f;
+    return "text";
+  };
+  const out = ["-- GENERADO AUTOMÁTICAMENTE desde el TallerNet viejo.", "-- Ejecutar COMPLETO en el Supabase del AGENTE → SQL Editor → Run.", ""];
+  for (const [tabla, def] of Object.entries(defs)) {
+    const cols = [], pks = [];
+    for (const [col, p] of Object.entries(def.properties || {})) {
+      const fmt = p.format || p.type || "text";
+      const esSerial = p.default !== undefined && /^nextval\(/.test(String(p.default));
+      let linea;
+      if (esSerial) {
+        const t = tipoDe(fmt);
+        linea = '"' + col + '" ' + (t === "bigint" ? "bigserial" : t === "integer" ? "serial" : t);
+      } else {
+        linea = '"' + col + '" ' + tipoDe(fmt);
+        if (p.default !== undefined) {
+          let d = p.default;
+          if (typeof d === "string" && !/\(|::|^'/.test(d) && !/^-?[\d.]+$/.test(d) && d !== "true" && d !== "false")
+            d = "'" + d.replace(/'/g, "''") + "'";
+          linea += " default " + d;
+        }
+      }
+      if ((p.description || "").includes("<pk")) pks.push('"' + col + '"');
+      cols.push(linea);
+    }
+    out.push("create table if not exists \"" + tabla + "\" (" + cols.join(", ") + (pks.length ? ", primary key (" + pks.join(",") + ")" : "") + ");");
+  }
+  out.push("");
+  out.push("-- Candados: el equipo (con sesión) puede todo; nadie más ve nada…");
+  for (const tabla of Object.keys(defs)) {
+    out.push('alter table "' + tabla + '" enable row level security;');
+    out.push('drop policy if exists "equipo_' + tabla + '" on "' + tabla + '";');
+    out.push('create policy "equipo_' + tabla + '" on "' + tabla + '" for all to authenticated using (true) with check (true);');
+  }
+  out.push("-- …excepto el catálogo de motos, que es público (lo usa la página web)");
+  out.push('drop policy if exists "catalogo_publico" on "motos_catalogo";');
+  out.push('create policy "catalogo_publico" on "motos_catalogo" for select to anon using (true);');
+  out.push("");
+  out.push("-- Fotos (storage): el equipo sube, todo el mundo puede ver");
+  out.push('drop policy if exists "fotos_equipo" on storage.objects;');
+  out.push("create policy \"fotos_equipo\" on storage.objects for all to authenticated using (bucket_id in ('fotos','motos')) with check (bucket_id in ('fotos','motos'));");
+  out.push('drop policy if exists "fotos_publicas" on storage.objects;');
+  out.push("create policy \"fotos_publicas\" on storage.objects for select to anon using (bucket_id in ('fotos','motos'));");
+  return out.join("\n");
+}
+
 // ── Fotos: buckets "fotos" (recepción de motos) y "motos" (catálogo) ─────────
 async function listarRec(cli, bucket, prefijo) {
   let out = [];
