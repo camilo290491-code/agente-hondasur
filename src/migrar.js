@@ -1,0 +1,138 @@
+// migrar.js — Migración DE UNA SOLA VEZ: TallerNet → Supabase del AGENTE.
+// Copia las tablas del taller (con verificación de conteos: si algo no cuadra,
+// se detiene y lo dice) y las fotos de los buckets "fotos" y "motos",
+// corrigiendo las direcciones guardadas para que apunten al proyecto nuevo.
+// Se puede ejecutar varias veces sin dañar nada (usa upsert).
+// Cuando la migración quede verificada, este archivo se puede borrar.
+
+import { createClient } from "@supabase/supabase-js";
+
+const origen =
+  process.env.TALLERNET_URL && process.env.TALLERNET_SERVICE_KEY
+    ? createClient(process.env.TALLERNET_URL, process.env.TALLERNET_SERVICE_KEY)
+    : null;
+const destino =
+  process.env.SUPABASE_URL && process.env.SUPABASE_KEY
+    ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY)
+    : null;
+
+const TABLAS = [
+  "servicios", "mecanicos", "motos_catalogo", "motos", "config", "parametros",
+  "citas", "registros", "ordenes", "orden_renglones", "fotos",
+  "aprobaciones", "eliminaciones", "liquidaciones_mecanico",
+];
+
+function hostDe(url) { return String(url || "").replace(/https?:\/\//, "").replace(/\/.*$/, ""); }
+
+// Reemplaza en TODO el contenido de la fila (textos, json, listas) las
+// direcciones del proyecto viejo por las del nuevo (fotos, etc.).
+function reescribir(fila, viejo, nuevo) {
+  return JSON.parse(JSON.stringify(fila).split(viejo).join(nuevo));
+}
+
+async function contar(cli, tabla) {
+  const { count, error } = await cli.from(tabla).select("*", { count: "exact", head: true });
+  if (error) throw new Error(tabla + ": " + error.message);
+  return count || 0;
+}
+
+export async function migrarTablasTaller() {
+  if (!origen || !destino) return "Faltan llaves (TALLERNET_* o SUPABASE_*) en Railway.";
+  if (process.env.TALLERNET_URL === process.env.SUPABASE_URL)
+    return "TALLERNET_URL ya apunta al mismo proyecto que SUPABASE_URL: no hay nada que migrar (¿ya cambiaste las variables? Para migrar deben apuntar al proyecto VIEJO del taller).";
+  const vHost = hostDe(process.env.TALLERNET_URL);
+  const nHost = hostDe(process.env.SUPABASE_URL);
+  const lineas = ["MIGRACIÓN DE TABLAS · TallerNet → Agente", ""];
+  let perfecto = true;
+
+  for (const tabla of TABLAS) {
+    try {
+      // 1) Leer TODO del origen, por páginas (jamás confiar en una sola lectura)
+      let filas = [];
+      for (let d = 0; ; d += 1000) {
+        const { data, error } = await origen.from(tabla).select("*").range(d, d + 999);
+        if (error) throw new Error("leyendo: " + error.message);
+        filas = filas.concat(data || []);
+        if (!data || data.length < 1000) break;
+      }
+      const esperado = await contar(origen, tabla);
+      if (filas.length !== esperado)
+        throw new Error("lectura incompleta (" + filas.length + " de " + esperado + ") — NO se copió");
+
+      // 2) Corregir direcciones del proyecto viejo y copiar por lotes
+      for (let i = 0; i < filas.length; i += 500) {
+        const lote = filas.slice(i, i + 500).map((f) => reescribir(f, vHost, nHost));
+        const { error } = await destino.from(tabla).upsert(lote);
+        if (error) throw new Error("copiando: " + error.message);
+      }
+
+      // 3) Verificar el conteo en el destino
+      const quedo = await contar(destino, tabla);
+      const ok = quedo >= esperado;
+      if (!ok) perfecto = false;
+      lineas.push((ok ? "✓ " : "✗ ") + tabla + ": " + esperado + " filas en origen → " + quedo + " en destino");
+    } catch (e) {
+      perfecto = false;
+      lineas.push("✗ " + tabla + ": ERROR — " + e.message);
+    }
+  }
+  lineas.push("");
+  lineas.push(perfecto
+    ? "✅ TODAS LAS TABLAS CUADRARON. Sigue con las fotos: abre /migrar-fotos con la misma clave."
+    : "⚠️ HAY TABLAS CON ERROR (marcadas con ✗). NO cambies nada todavía: copia este reporte y mándamelo.");
+  return lineas.join("\n");
+}
+
+// ── Fotos: buckets "fotos" (recepción de motos) y "motos" (catálogo) ─────────
+async function listarRec(cli, bucket, prefijo) {
+  let out = [];
+  const { data, error } = await cli.storage.from(bucket).list(prefijo, { limit: 1000 });
+  if (error) throw new Error("listando " + bucket + "/" + prefijo + ": " + error.message);
+  for (const it of data || []) {
+    const ruta = prefijo ? prefijo + "/" + it.name : it.name;
+    if (it.id) out.push(ruta);               // archivo
+    else out = out.concat(await listarRec(cli, bucket, ruta)); // carpeta
+  }
+  return out;
+}
+
+export async function migrarFotosTaller() {
+  if (!origen || !destino) return "Faltan llaves en Railway.";
+  if (process.env.TALLERNET_URL === process.env.SUPABASE_URL)
+    return "TALLERNET_URL ya apunta al proyecto nuevo: nada que migrar.";
+  const lineas = ["MIGRACIÓN DE FOTOS", ""];
+  let pendientesTotal = 0;
+
+  for (const bucket of ["fotos", "motos"]) {
+    try {
+      // Asegurar el bucket en el destino (público, como el original)
+      const { error: eb } = await destino.storage.createBucket(bucket, { public: true });
+      if (eb && !/exist|duplicate/i.test(eb.message || "")) throw new Error("creando bucket: " + eb.message);
+
+      const deOrigen = await listarRec(origen, bucket, "");
+      const deDestino = new Set(await listarRec(destino, bucket, ""));
+      const faltan = deOrigen.filter((r) => !deDestino.has(r));
+
+      let copiadas = 0;
+      for (const ruta of faltan.slice(0, 40)) { // 40 por pasada, para no agotar el tiempo
+        const { data: archivo, error: e1 } = await origen.storage.from(bucket).download(ruta);
+        if (e1) { lineas.push("✗ " + bucket + "/" + ruta + ": " + e1.message); continue; }
+        const { error: e2 } = await destino.storage.from(bucket)
+          .upload(ruta, archivo, { upsert: true, contentType: archivo.type || "image/jpeg" });
+        if (e2) { lineas.push("✗ " + bucket + "/" + ruta + ": " + e2.message); continue; }
+        copiadas++;
+      }
+      const quedan = faltan.length - copiadas;
+      pendientesTotal += quedan;
+      lineas.push("• " + bucket + ": " + deOrigen.length + " fotos en origen · copiadas ahora " + copiadas + " · pendientes " + quedan);
+    } catch (e) {
+      pendientesTotal += 1;
+      lineas.push("✗ bucket " + bucket + ": ERROR — " + e.message);
+    }
+  }
+  lineas.push("");
+  lineas.push(pendientesTotal > 0
+    ? "⏳ Aún quedan fotos: RECARGA ESTA PÁGINA (F5) hasta que diga pendientes 0."
+    : "✅ FOTOS COMPLETAS. Sigue con el paso de las secuencias (SQL) y el cambio de llaves.");
+  return lineas.join("\n");
+}
