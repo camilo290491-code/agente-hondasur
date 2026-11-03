@@ -20,6 +20,8 @@ import { iniciarRecordatoriosCartera } from "./cartera.js";
 import { iniciarClasificacion } from "./clasificar.js";
 // NUEVO — seguimiento de cotizaciones de CarteraNet
 import { iniciarSeguimientosCotizacion } from "./seguimientos.js";
+// TEMPORAL — migración TallerNet → Supabase del agente (borrar al terminar)
+import { migrarTablasTaller, migrarFotosTaller } from "./migrar.js";
 
 const app = express();
 app.use(express.json());
@@ -107,6 +109,19 @@ app.post("/webhook", async (req, res) => {
 });
 
 app.get("/", (_, res) => res.send("Agente HondaSur activo 🏍️"));
+
+// TEMPORAL — migración del taller (borrar estas dos rutas al terminar)
+const CLAVE_MIGRA = "hs-migra-7319";
+app.get("/migrar-taller", async (req, res) => {
+  if (req.query.clave !== CLAVE_MIGRA) return res.status(403).send("Clave incorrecta.");
+  try { res.type("text/plain; charset=utf-8").send(await migrarTablasTaller()); }
+  catch (e) { res.type("text/plain").send("ERROR: " + e.message); }
+});
+app.get("/migrar-fotos", async (req, res) => {
+  if (req.query.clave !== CLAVE_MIGRA) return res.status(403).send("Clave incorrecta.");
+  try { res.type("text/plain; charset=utf-8").send(await migrarFotosTaller()); }
+  catch (e) { res.type("text/plain").send("ERROR: " + e.message); }
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
