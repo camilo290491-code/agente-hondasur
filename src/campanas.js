@@ -42,6 +42,13 @@ export const PLANTILLAS_CAMPANA = {
       `al comprar tu próxima moto nueva con nosotros 🏍 Aplica para ti o para quien tú recomiendes. ` +
       `Válido hasta el ${v.fecha_fin}, redimible en el almacén al momento de la compra. ¿Quieres conocer los modelos y la financiación? Respóndenos por aquí. 🙌`,
   },
+  bono_aclaracion: {
+    variables: ["nombre", "valor", "excepcion"],
+    texto: (v) =>
+      `Hola ${v.nombre} 👋 Te escribimos para aclarar un detalle del bono de ${v.valor} en accesorios que te enviamos: ` +
+      `aplica para la compra de cualquier moto nueva en HondaSur, excepto ${v.excepcion}. El resto de condiciones sigue igual. ` +
+      `Gracias por tu comprensión y cualquier duda respóndenos por aquí 🙌`,
+  },
 };
 
 const fmtCOP = (n) => "$" + Math.round(Number(n || 0)).toLocaleString("es-CO");
@@ -66,6 +73,22 @@ async function esAdmin(token) {
 //  activos : créditos con estado ACTIVO (clientes que hoy pagan su moto)
 //  todos   : cualquier crédito registrado (incluye los ya cancelados)
 async function destinatarios(segmento) {
+  // Segmento especial: "campana:12" = los que RECIBIERON la campaña 12 (para aclaraciones o recordatorios)
+  if (String(segmento || "").startsWith("campana:")) {
+    const id = Number(segmento.split(":")[1]);
+    const { data: env, error } = await agente.from("campanas_envios").select("telefono, nombre, estado").eq("campana_id", id).eq("estado", "ENVIADO").order("id", { ascending: true });
+    if (error) throw new Error("No pude leer la campaña anterior: " + error.message);
+    const { data: vetados } = await agente.from("no_promociones").select("telefono");
+    const sinPromos = new Set((vetados || []).map((v) => v.telefono));
+    const motivos = { otro_estado: 0, sin_celular: 0, sin_recordatorios: 0, juridico: 0, no_promociones: 0, repetidos: 0 };
+    const vistos = new Set(); const lista = [];
+    for (const e of env || []) {
+      if (sinPromos.has(e.telefono)) { motivos.no_promociones++; continue; }
+      if (vistos.has(e.telefono)) { motivos.repetidos++; continue; }
+      vistos.add(e.telefono); lista.push({ telefono: e.telefono, nombre: e.nombre || "", articulo: "" });
+    }
+    return { lista, motivos, total_base: (env || []).length };
+  }
   if (!cartera) throw new Error("El servidor no tiene acceso a CarteraNet.");
   const filas = [];
   for (let desde = 0; ; desde += 1000) {
@@ -113,21 +136,22 @@ export async function manejarCampanas(req, res) {
     }
 
     if (accion === "crear") {
-      const { nombre, plantilla, segmento, valor, fecha_fin, condiciones } = req.body;
+      const { nombre, plantilla, segmento, valor, fecha_fin, excepcion, condiciones } = req.body;
       const def = PLANTILLAS_CAMPANA[plantilla];
       if (!def) return res.json({ ok: false, error: "Plantilla desconocida." });
       if (!(Number(valor) > 0)) return res.json({ ok: false, error: "Escribe el valor del bono." });
-      if (!fecha_fin) return res.json({ ok: false, error: "Escribe hasta cuándo es válido." });
+      if (def.variables.includes("fecha_fin") && !fecha_fin) return res.json({ ok: false, error: "Escribe hasta cuándo es válido." });
+      if (def.variables.includes("excepcion") && !String(excepcion || "").trim()) return res.json({ ok: false, error: "Escribe la excepción (ej: la XR 190L)." });
       const d = await destinatarios(segmento || "activos");
       if (!d.lista.length) return res.json({ ok: false, error: "No hay destinatarios para ese segmento." });
-      const params = { valor: fmtCOP(valor), fecha_fin: String(fecha_fin).trim() };
+      const params = { valor: fmtCOP(valor), fecha_fin: String(fecha_fin || "").trim(), excepcion: String(excepcion || "").trim() };
       const { data: cam, error } = await agente
         .from("campanas")
         .insert({
           nombre: String(nombre || "Campaña").trim().slice(0, 80),
           plantilla, segmento: segmento || "activos", params,
           condiciones: String(condiciones || "").slice(0, 1200),
-          estado: "ENVIANDO", vigente: true, creado_por: admin,
+          estado: "ENVIANDO", vigente: plantilla === "bono_accesorios", creado_por: admin,
           total: d.lista.length, enviados: 0, errores: 0,
         })
         .select("id")
@@ -163,10 +187,10 @@ export async function manejarCampanas(req, res) {
 
     if (accion === "probar") {
       // Envía la plantilla SOLO al celular indicado (para que el admin vea cómo llega)
-      const { telefono, plantilla, valor, fecha_fin } = req.body;
+      const { telefono, plantilla, valor, fecha_fin, excepcion } = req.body;
       const def = PLANTILLAS_CAMPANA[plantilla]; const tel = telWA(telefono);
       if (!def || !tel) return res.json({ ok: false, error: "Revisa la plantilla y el celular." });
-      const v = { nombre: "Camilo", valor: fmtCOP(valor), fecha_fin: String(fecha_fin || "").trim() };
+      const v = { nombre: "Camilo", valor: fmtCOP(valor), fecha_fin: String(fecha_fin || "").trim(), excepcion: String(excepcion || "").trim() };
       const e = await enviarPlantillaCampana(tel, plantilla, v);
       return res.json({ ok: e.ok, mensaje: e.ok ? "Prueba enviada a " + tel : "Meta rechazó el envío. ¿La plantilla ya está aprobada con ese nombre e idioma?", detalle: e.error || null });
     }
