@@ -17,6 +17,8 @@ import { HERRAMIENTAS_TALLER, ejecutarHerramientaTaller } from "./tallernet.js";
 import { HERRAMIENTA_CARTERA, consultarEstadoCredito } from "./cartera.js";
 // NUEVO — seguimiento de cotizaciones (CarteraNet → Centro de Chats)
 import { HERRAMIENTA_NO_INTERESADO, marcarNoInteresado } from "./seguimientos.js";
+// NUEVO — promociones a clientes (bono de accesorios) y respeto a quien no quiere publicidad
+import { HERRAMIENTA_NO_PROMOS, marcarNoPromociones, campanaVigente } from "./campanas.js";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -106,6 +108,8 @@ export async function procesarMensaje(telefono, texto) {
   });
   const fechaISO = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
 
+  const textoPromo = await campanaVigente();   // promoción vigente (vacío si no hay)
+
   const parametrosBase = {
     model: "claude-sonnet-4-6",
     max_tokens: 1024,
@@ -181,6 +185,7 @@ export async function procesarMensaje(telefono, texto) {
       `SEGUIMIENTO DE COTIZACIONES: a algunos clientes les enviamos un mensaje preguntando si siguen interesados en una moto o crédito que cotizaron en el almacén. ` +
       `Si el cliente responde que YA NO le interesa, que lo compró en otro lado, o pide que no le escribamos más de eso, usa cliente_no_interesado y despídete con amabilidad ` +
       `dejando la puerta abierta. Si responde que SÍ sigue interesado, atiéndelo con normalidad: resuelve dudas, cotiza con las herramientas e invítalo al almacén.` +
+      textoPromo +
       (enModoAsesor
         ? `\n\nMODO ASESOR ACTIVO: este cliente ya fue transferido a un asesor comercial humano para su compra de moto. ` +
           `NO cotices motos, NO negocies precios de motos ni gestiones la compra: eso lo hace el asesor, que lo contactará pronto. ` +
@@ -188,7 +193,7 @@ export async function procesarMensaje(telefono, texto) {
           `TODO LO DEMÁS atiéndelo con normalidad: citas y servicios del taller, precios de mantenimiento, y preguntas generales. ` +
           `NO uses [HANDOFF] de nuevo.`
         : ""),
-    tools: [...HERRAMIENTAS_TALLER, HERRAMIENTA_LEAD, HERRAMIENTA_CARTERA, HERRAMIENTA_NO_INTERESADO], // taller + leads + crédito + seguimientos
+    tools: [...HERRAMIENTAS_TALLER, HERRAMIENTA_LEAD, HERRAMIENTA_CARTERA, HERRAMIENTA_NO_INTERESADO, HERRAMIENTA_NO_PROMOS], // taller + leads + crédito + seguimientos + promociones
   };
 
   let msg = await anthropic.messages.create({
@@ -214,6 +219,8 @@ export async function procesarMensaje(telefono, texto) {
         ? await consultarEstadoCredito(telefono, uso.input)
         : uso.name === "cliente_no_interesado"
         ? await marcarNoInteresado(telefono)
+        : uso.name === "no_mas_promociones"
+        ? await marcarNoPromociones(telefono)
         : await ejecutarHerramientaTaller(uso.name, uso.input, telefono);
       console.log("[herramienta]", uso.name, JSON.stringify(salida).slice(0, 200));
       resultados.push({
