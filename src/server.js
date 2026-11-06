@@ -20,6 +20,7 @@ import { iniciarRecordatoriosCartera } from "./cartera.js";
 import { iniciarClasificacion } from "./clasificar.js";
 // NUEVO — seguimiento de cotizaciones de CarteraNet
 import { iniciarSeguimientosCotizacion } from "./seguimientos.js";
+import { manejarCampanas, iniciarCampanas } from "./campanas.js"; // 📣 campañas promocionales a clientes de CarteraNet
 // TEMPORAL — migración TallerNet → Supabase del agente (borrar al terminar)
 import { migrarTablasTaller, migrarFotosTaller, generarEsquemaTaller } from "./migrar.js";
 
@@ -116,7 +117,7 @@ app.get("/", (_, res) => res.send("Agente HondaSur activo 🏍️"));
 // la llave maestra. Nunca viaja ninguna llave secreta al navegador.
 const ADMIN_CORREOS = ["camilo290491@gmail.com"];
 app.use((req, res, next) => {
-  if (req.path === "/usuarios") {
+  if (req.path === "/usuarios" || req.path === "/campanas") {
     res.header("Access-Control-Allow-Origin", "*");
     res.header("Access-Control-Allow-Headers", "Content-Type");
     res.header("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -178,6 +179,9 @@ app.post("/usuarios", async (req, res) => {
   }
 });
 
+// 📣 Campañas promocionales (solo admin; la validación del token vive en campanas.js)
+app.post("/campanas", manejarCampanas);
+
 // TEMPORAL — migración del taller (borrar estas dos rutas al terminar)
 const CLAVE_MIGRA = "hs-migra-7319";
 app.get("/migrar-taller", async (req, res) => {
@@ -206,4 +210,5 @@ app.listen(PORT, () => {
   iniciarRecordatoriosCartera();      // NUEVO — recordatorios de pago de CarteraNet
   iniciarClasificacion();             // NUEVO — separa chats de ventas, taller y cartera
   iniciarSeguimientosCotizacion();    // NUEVO — retoma cotizaciones de CarteraNet hasta que respondan
+  iniciarCampanas();                  // NUEVO — envía las campañas promocionales encoladas desde la app
 });
