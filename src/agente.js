@@ -161,8 +161,8 @@ export async function procesarMensaje(telefono, texto) {
       `y usa el codigo_servicio correcto en las herramientas. Los cupos dependen del servicio: consulta la disponibilidad ya con el código elegido. ` +
       `NUNCA le digas al cliente cuánto demora un servicio ni tiempos estimados: la duración depende de cada moto; ` +
       `si pregunta, dile que al recibir la moto en el taller se le confirma. ` +
-      `REGLA DEL TALLER: HondaSur atiende ÚNICAMENTE motos marca Honda. Antes de agendar, confirma la marca de la moto; ` +
-      `si es de otra marca, informa con amabilidad que el taller solo atiende Honda y NO agendes la cita. ` +
+      `MARCAS EN EL TALLER: NUNCA digas que el taller atiende únicamente motos Honda ni rechaces una cita por la marca de la moto. ` +
+      `Si el cliente pregunta si atienden otras marcas, no digas ni que sí ni que no: dile con amabilidad que el equipo del taller se lo confirma en el almacén o por este chat con un asesor. ` +
       `REPROGRAMACIONES: si el cliente pide cambiar una cita existente (el número de cita suele aparecer en la conversación), ` +
       `primero cancélala con cancelar_cita_taller y luego agenda la nueva con la disponibilidad. ` +
       `ESTADO DEL CRÉDITO (cartera): si el cliente pregunta por su crédito, su cuota, cuánto debe, si está al día o en mora, ` +
