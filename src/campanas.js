@@ -38,9 +38,9 @@ export const PLANTILLAS_CAMPANA = {
   bono_accesorios: {
     variables: ["nombre", "valor", "fecha_fin"],
     texto: (v) =>
-      `Hola ${v.nombre} 👋 En HondaSur queremos darte las gracias por haber comprado tu moto con nosotros 🏍 ` +
-      `Por eso te regalamos un bono de ${v.valor} para redimir en accesorios originales en nuestro almacén de Caldas. ` +
-      `Es válido hasta el ${v.fecha_fin}: solo pasa con tu cédula y lo haces efectivo. ¡Te esperamos! 🙌`,
+      `Hola ${v.nombre} 👋 Por ser cliente de HondaSur tenemos algo para ti: un bono de ${v.valor} en accesorios originales ` +
+      `al comprar tu próxima moto nueva con nosotros 🏍 Aplica para ti o para quien tú recomiendes. ` +
+      `Válido hasta el ${v.fecha_fin}, redimible en el almacén al momento de la compra. ¿Quieres conocer los modelos y la financiación? Respóndenos por aquí. 🙌`,
   },
 };
 
@@ -237,12 +237,13 @@ export async function campanaVigente() {
     if (c) {
       const p = c.params || {};
       texto =
-        `\n\nPROMOCIÓN VIGENTE PARA CLIENTES (campaña "${c.nombre}"): a los clientes que compraron su moto con nosotros les enviamos por WhatsApp un bono de ${p.valor || ""} ` +
-        `para redimir en accesorios originales en el almacén, válido hasta el ${p.fecha_fin || ""}. ` +
-        `Si un cliente responde a ese mensaje o pregunta por el bono: agradécele, confírmale que el bono es suyo y que se redime en el almacén (Cra. 50 #125 Sur-104, Caldas) presentando su cédula; ` +
-        `no se cambia por dinero ni se descuenta de cuotas del crédito. Si quiere saber qué accesorios hay, invítalo a pasar y verlos o dile que un asesor le cuenta por este chat. ` +
+        `\n\nPROMOCIÓN VIGENTE PARA CLIENTES (campaña "${c.nombre}"): a nuestros clientes de crédito les enviamos por WhatsApp un bono de ${p.valor || ""} en accesorios originales ` +
+        `que se redime ÚNICAMENTE al comprar una moto NUEVA en HondaSur (para el mismo cliente o para alguien que él recomiende), válido hasta el ${p.fecha_fin || ""}. ` +
+        `Si un cliente responde a ese mensaje o pregunta por el bono: agradécele, explícale que el bono se hace efectivo en el almacén (Cra. 50 #125 Sur-104, Caldas) en el momento de la compra de la moto nueva, ` +
+        `que no se cambia por dinero, no se descuenta de cuotas del crédito ni sirve para comprar accesorios sueltos sin moto. ` +
+        `Aprovecha para ayudarle: pregúntale qué moto le interesa, cotízala con consultar_motos_disponibles, siembra la financiación y, si muestra interés real, usa marcar_cliente_potencial como siempre. ` +
         (c.condiciones ? `Condiciones adicionales definidas por el almacén: ${c.condiciones} ` : "") +
-        `Si pregunta si el bono aplica para comprar OTRA moto o para alguien más, dile que eso lo confirma el equipo en el almacén. ` +
+        `Si pregunta algo del bono que no esté aquí (combinarlo con otras promociones, qué accesorios cubre), dile que eso lo confirma el equipo en el almacén. ` +
         `Si el cliente dice que no quiere recibir más promociones o mensajes de este tipo, usa la herramienta no_mas_promociones y despídete con amabilidad.`;
     }
   } catch (e) { /* sin promoción */ }
