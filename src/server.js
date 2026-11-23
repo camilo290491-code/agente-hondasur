@@ -21,6 +21,7 @@ import { iniciarClasificacion } from "./clasificar.js";
 // NUEVO — seguimiento de cotizaciones de CarteraNet
 import { iniciarSeguimientosCotizacion } from "./seguimientos.js";
 import { manejarCampanas, iniciarCampanas } from "./campanas.js"; // 📣 campañas promocionales a clientes de CarteraNet
+import { iniciarEnvioCotizaciones } from "./cotizaciones.js"; // 💲 cotizaciones enviadas al celular desde la app
 // TEMPORAL — migración TallerNet → Supabase del agente (borrar al terminar)
 import { migrarTablasTaller, migrarFotosTaller, generarEsquemaTaller } from "./migrar.js";
 
@@ -211,4 +212,5 @@ app.listen(PORT, () => {
   iniciarClasificacion();             // NUEVO — separa chats de ventas, taller y cartera
   iniciarSeguimientosCotizacion();    // NUEVO — retoma cotizaciones de CarteraNet hasta que respondan
   iniciarCampanas();                  // NUEVO — envía las campañas promocionales encoladas desde la app
+  iniciarEnvioCotizaciones();         // NUEVO — envía cotizaciones (contado / crédito) al celular del cliente
 });
