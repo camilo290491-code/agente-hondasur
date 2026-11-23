@@ -224,3 +224,36 @@ export async function marcarClientePotencial(telefono, info = {}) {
     nota: "Cliente marcado como potencial; el equipo lo verá en el panel. NO le menciones al cliente que fue marcado: sigue atendiéndolo con normalidad.",
   };
 }
+
+// ============================================================
+// GARANTÍAS — El agente perfila el caso y lo pasa a una asesora.
+// Etiqueta el chat como GARANTIA, guarda si la moto se compró en HondaSur,
+// y deja el chat bajo control humano (el bot calla hasta que el equipo lo libere).
+// ============================================================
+export async function marcarGarantia(telefono, info = {}) {
+  const comproAqui = info.compro_en_hondasur === true || info.compro_en_hondasur === "true";
+  const resumen = [info.nombre ? "Cliente: " + info.nombre : null, info.modelo ? "Moto: " + info.modelo : null,
+                   info.falla ? "Falla: " + info.falla : null, "Comprada en HondaSur: " + (comproAqui ? "SÍ" : "NO")]
+    .filter(Boolean).join(" · ");
+  if (!USAR_SUPABASE) {
+    console.log("[SIM] garantía:", telefono, resumen);
+    return { ok: true, compro_en_hondasur: comproAqui };
+  }
+  const { error } = await supabase.from("conversaciones").upsert({
+    telefono,
+    etiqueta: "GARANTIA",
+    garantia_compro_aqui: comproAqui,
+    garantia_resumen: resumen.slice(0, 400),
+    garantia_marcada_at: new Date().toISOString(),
+    control_humano: true,
+    requiere_humano: true,
+    actualizado: new Date(),
+  });
+  if (error) return { error: error.message };
+  console.log("[garantía] chat etiquetado y pasado a asesora:", telefono, "| compró aquí:", comproAqui);
+  return {
+    ok: true,
+    compro_en_hondasur: comproAqui,
+    nota: "Caso de garantía registrado y pasado a una asesora. Despídete en UNA frase amable diciéndole que una asesora revisará su caso y le escribirá por este mismo chat en horario de atención. NO agendes cita, NO prometas que la garantía será aprobada ni des diagnósticos.",
+  };
+}
