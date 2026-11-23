@@ -2,7 +2,7 @@
 // de Honda Sur Central (Atención al cliente). La app deja una fila en
 // `cotizaciones_envios` y aquí se despacha con la plantilla de Meta que corresponda:
 //   cotizacion_contado  → nombre, moto, precio de contado, papeles, total
-//   cotizacion_credito  → nombre, moto, total, cuota inicial, planes (todos los plazos con su cuota aprox.)
+//   cotizacion_credito  → nombre, moto, precio, papeles, total, cuota inicial, planes (todos los plazos con su cuota aprox.)
 // Nunca se envía la tasa de interés. El mensaje queda registrado en el chat del cliente.
 
 import { createClient } from "@supabase/supabase-js";
@@ -24,10 +24,10 @@ export const PLANTILLAS_COTIZACION = {
   },
   credito: {
     plantilla: "cotizacion_credito",
-    variables: ["nombre", "moto", "total", "inicial", "planes"],
+    variables: ["nombre", "moto", "precio", "papeles", "total", "inicial", "planes"],
     texto: (v) =>
       `Hola ${v.nombre} 👋 Esta es tu cotización de HondaSur para la ${v.moto} 🏍\n` +
-      `Valor total con papeles: ${v.total}\nCuota inicial: ${v.inicial}\nPlanes de financiación (cuota mensual aproximada): ${v.planes}\n` +
+      `Precio de la moto: ${v.precio}\nPapeles (matrícula y SOAT): ${v.papeles}\nTotal: ${v.total}\nCuota inicial: ${v.inicial}\nPlanes de financiación (cuota mensual aproximada): ${v.planes}\n` +
       `Valores aproximados, sujetos a estudio de crédito. Te esperamos en Cra. 50 #125 Sur-104, Caldas. ¿Tienes alguna duda? Respóndenos por aquí 🙌`,
   },
 };
