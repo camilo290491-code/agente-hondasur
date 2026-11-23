@@ -77,3 +77,22 @@ export async function notificarLeadCaliente(telefonoCliente, historial) {
     console.error("No se pudo enviar el aviso al asesor:", err.message);
   }
 }
+
+// Aviso a las asesoras cuando el agente perfila un caso de GARANTÍA.
+export async function notificarGarantia(telefonoCliente, info = {}) {
+  const comproAqui = info.compro_en_hondasur === true || info.compro_en_hondasur === "true";
+  const texto =
+    `🛠 GARANTÍA — HondaSur\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `Compró la moto aquí: ${comproAqui ? "SÍ ✅" : "NO ⚠️"}\n` +
+    `Cliente: ${info.nombre || "no dio"}\n` +
+    `Moto: ${info.modelo || "no dijo"}\n` +
+    `Falla: ${info.falla || "no detalló"}\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `📱 WhatsApp: ${telefonoCliente}\n` +
+    `🕐 ${new Date().toLocaleString("es-CO")}\n` +
+    `👉 El bot quedó en silencio en este chat: atiéndelo desde Honda Sur Central.`;
+  console.log("\n========== AVISO DE GARANTÍA ==========\n" + texto + "\n=======================================\n");
+  try { await enviarWhatsApp(NOTIFICAR_A, texto); }
+  catch (err) { console.error("No se pudo enviar el aviso de garantía:", err.message); }
+}
