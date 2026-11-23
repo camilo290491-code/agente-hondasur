@@ -9,8 +9,9 @@ import {
   estaBajoControlHumano,
   yaFuePasadoAntes,
   marcarClientePotencial,
+  marcarGarantia,
 } from "./memoria.js";
-import { notificarLeadCaliente } from "./notificar.js";
+import { notificarLeadCaliente, notificarGarantia } from "./notificar.js";
 // NUEVO — herramientas del taller (citas y tarifario de TallerNet)
 import { HERRAMIENTAS_TALLER, ejecutarHerramientaTaller } from "./tallernet.js";
 // NUEVO — consulta del estado del crédito (CarteraNet)
@@ -34,6 +35,23 @@ const HERRAMIENTA_LEAD = {
       resumen: { type: "string", description: "Resumen corto: qué quiere, nombre si lo dio, señales de interés. Ej: 'Andrés, pregunta CB190R, pide financiación, quiere verla el sábado'" },
     },
     required: ["resumen"],
+  },
+};
+
+// Herramienta GARANTÍA: el agente perfila el caso y lo pasa a una asesora (no agenda)
+const HERRAMIENTA_GARANTIA = {
+  name: "pasar_garantia_a_asesora",
+  description:
+    "Úsala cuando el cliente quiera que le revisen o arreglen una FALLA de su moto por GARANTÍA (o diga 'garantía', 'la moto salió mala', 'reclamo', 'defecto de fábrica', 'me la deben responder'). Antes de usarla pregunta y confirma: si la moto la compró en HondaSur, el modelo y cuál es la falla. Luego llámala UNA sola vez. Registra el caso, etiqueta el chat como GARANTÍA y avisa a las asesoras, que lo atenderán personalmente. NUNCA agendes cita de taller para garantías: eso lo decide la asesora.",
+  input_schema: {
+    type: "object",
+    properties: {
+      compro_en_hondasur: { type: "boolean", description: "true si el cliente dice que compró la moto en HondaSur; false si la compró en otro lugar o no sabe" },
+      modelo: { type: "string", description: "Modelo de la moto, ej. CB125F 2.0" },
+      falla: { type: "string", description: "Qué falla reporta, en pocas palabras" },
+      nombre: { type: "string", description: "Nombre del cliente si lo dio" },
+    },
+    required: ["compro_en_hondasur", "falla"],
   },
 };
 
@@ -165,6 +183,12 @@ export async function procesarMensaje(telefono, texto) {
       `y usa el codigo_servicio correcto en las herramientas. Los cupos dependen del servicio: consulta la disponibilidad ya con el código elegido. ` +
       `NUNCA le digas al cliente cuánto demora un servicio ni tiempos estimados: la duración depende de cada moto; ` +
       `si pregunta, dile que al recibir la moto en el taller se le confirma. ` +
+      `GARANTÍAS (MUY IMPORTANTE): si el cliente habla de una FALLA que quiere que le cubran por garantía, o pide revisión "por garantía", NO agendes la cita. ` +
+      `Primero pregunta, con amabilidad y en un solo mensaje: si la moto la compró en HondaSur, qué modelo es y cuál es la falla. ` +
+      `Con esas respuestas usa pasar_garantia_a_asesora (compró aquí o no, da igual: TODAS las garantías las atiende una asesora en persona). ` +
+      `Después despídete en una frase: una asesora revisará su caso y le escribirá por este chat en horario de atención. ` +
+      `No digas que la garantía está aprobada o negada, no des diagnósticos ni precios, y no digas que por no haber comprado aquí no se atiende. ` +
+      `Esto NO aplica a mantenimientos, revisiones por kilometraje ni reparaciones que el cliente paga: esas se agendan normal. ` +
       `MARCAS EN EL TALLER: NUNCA digas que el taller atiende únicamente motos Honda ni rechaces una cita por la marca de la moto. ` +
       `Si el cliente pregunta si atienden otras marcas, no digas ni que sí ni que no: dile con amabilidad que el equipo del taller se lo confirma en el almacén o por este chat con un asesor. ` +
       `REPROGRAMACIONES: si el cliente pide cambiar una cita existente (el número de cita suele aparecer en la conversación), ` +
@@ -193,7 +217,7 @@ export async function procesarMensaje(telefono, texto) {
           `TODO LO DEMÁS atiéndelo con normalidad: citas y servicios del taller, precios de mantenimiento, y preguntas generales. ` +
           `NO uses [HANDOFF] de nuevo.`
         : ""),
-    tools: [...HERRAMIENTAS_TALLER, HERRAMIENTA_LEAD, HERRAMIENTA_CARTERA, HERRAMIENTA_NO_INTERESADO, HERRAMIENTA_NO_PROMOS], // taller + leads + crédito + seguimientos + promociones
+    tools: [...HERRAMIENTAS_TALLER, HERRAMIENTA_LEAD, HERRAMIENTA_GARANTIA, HERRAMIENTA_CARTERA, HERRAMIENTA_NO_INTERESADO, HERRAMIENTA_NO_PROMOS], // taller + leads + garantías + crédito + seguimientos + promociones
   };
 
   let msg = await anthropic.messages.create({
@@ -221,6 +245,8 @@ export async function procesarMensaje(telefono, texto) {
         ? await marcarNoInteresado(telefono)
         : uso.name === "no_mas_promociones"
         ? await marcarNoPromociones(telefono)
+        : uso.name === "pasar_garantia_a_asesora"
+        ? await (async () => { const r = await marcarGarantia(telefono, uso.input); if (r.ok) notificarGarantia(telefono, uso.input).catch(() => {}); return r; })()
         : await ejecutarHerramientaTaller(uso.name, uso.input, telefono);
       console.log("[herramienta]", uso.name, JSON.stringify(salida).slice(0, 200));
       resultados.push({
