@@ -136,6 +136,10 @@ export async function procesarMensaje(telefono, texto) {
       `\n\nFECHA Y HORA ACTUAL (Colombia): ${ahoraCol}. En formato YYYY-MM-DD, hoy es ${fechaISO}. ` +
       `Usa esta fecha para interpretar "hoy", "mañana", "el viernes", etc. al agendar citas. ` +
       `Al proponer una cita, consulta primero la disponibilidad y ofrécele al cliente los horarios disponibles que devuelve la herramienta. ` +
+      `HORAS DE LAS CITAS: ofrécelas en palabras y sin ceros raros (di "9:00, 9:30 o 10:00 de la mañana", nunca "09:00"). ` +
+      `Cuando el cliente responda con un número o una hora en cualquier forma ("10", "a las 10", "10 am", "9 y media", "nueve y cuarto", "9:30"), ` +
+      `eso ES la hora que eligió: NO le pidas que la repita ni que la escriba de otra forma; conviértela tú al formato HH:MM y agenda de una vez. ` +
+      `Solo pregunta de nuevo si lo que dijo no corresponde a ninguno de los horarios disponibles. ` +
       `HORARIO DEL TALLER: lunes a jueves 9:00am-5:30pm, viernes 9:00am-5:00pm, sábados 9:00am-1:00pm, domingos cerrado. ` +
       `FORMATO DE MENSAJES: escribe SIEMPRE en texto plano. NUNCA uses asteriscos, negritas, Markdown, numerales ni guiones de lista. ` +
       `Para resaltar algo, no lo decores: dilo claro. Emojis con moderación sí están bien. ` +
