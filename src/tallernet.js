@@ -17,6 +17,42 @@ if (!taller) {
 
 const cop = (n) => "$" + Math.round(Number(n || 0)).toLocaleString("es-CO");
 
+// Convierte lo que diga el cliente ("10", "10 am", "9 y media", "nueve y cuarto",
+// "9:30", "9.30", "930", "a las 10 de la mañana") al formato HH:MM de la agenda.
+const NUMEROS = { una: 1, uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10, once: 11, doce: 12 };
+export function normalizarHora(texto) {
+  if (texto == null) return null;
+  let t = String(texto).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+  t = t.replace(/\b(a las|a la|las|la|hora|horas|hrs|h)\b/g, " ").replace(/\s+/g, " ").trim();
+  const pm = /\b(p\.?\s?m\.?|tarde|noche)\b/.test(t);
+  const am = /\b(a\.?\s?m\.?|manana)\b/.test(t);
+  t = t.replace(/\b(a\.?\s?m\.?|p\.?\s?m\.?|de la|de|manana|tarde|noche|en punto)\b/g, " ").replace(/\s+/g, " ").trim();
+  // palabras → número
+  t = t.replace(/\b([a-z]+)\b/g, (w) => (NUMEROS[w] != null ? String(NUMEROS[w]) : w));
+  let h, m = 0;
+  let r;
+  if ((r = t.match(/^(\d{1,2})\s*[:.h]\s*(\d{2})$/))) { h = +r[1]; m = +r[2]; }
+  else if ((r = t.match(/^(\d{1,2})\s*y\s*(media|30)$/))) { h = +r[1]; m = 30; }
+  else if ((r = t.match(/^(\d{1,2})\s*y\s*(cuarto|15)$/))) { h = +r[1]; m = 15; }
+  else if ((r = t.match(/^(\d{1,2})\s*y\s*(45|tres cuartos)$/))) { h = +r[1]; m = 45; }
+  else if ((r = t.match(/^(\d{1,2})\s*menos\s*cuarto$/))) { h = +r[1] - 1; m = 45; }
+  else if ((r = t.match(/^(\d{3,4})$/))) { const s = r[1].padStart(4, "0"); h = +s.slice(0, 2); m = +s.slice(2); }
+  else if ((r = t.match(/^(\d{1,2})$/))) { h = +r[1]; }
+  else return null;
+  if (pm && h < 12) h += 12;
+  if (am && h === 12) h = 0;
+  if (!(h >= 0 && h <= 23) || !(m >= 0 && m <= 59)) return null;
+  return String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+}
+
+// "09:30" → "9:30 de la mañana" (para que el agente las ofrezca en palabras)
+export function horaEnPalabras(hhmm) {
+  const [h, m] = String(hhmm).split(":").map(Number);
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  const suf = h < 12 ? "de la mañana" : "de la tarde";
+  return `${h12}:${String(m).padStart(2, "0")} ${suf}`;
+}
+
 // La disponibilidad real (carriles, duración por servicio, tope del 85%) la
 // calcula la función central web_horarios_disponibles en la base de TallerNet —
 // la misma que usa la página web, así ambos canales ofrecen exactamente lo mismo.
@@ -72,7 +108,7 @@ export const HERRAMIENTAS_TALLER = [
       type: "object",
       properties: {
         fecha: { type: "string", description: "YYYY-MM-DD" },
-        hora: { type: "string", description: "Hora en formato 24h, ej 09:30 (una de las disponibles)" },
+        hora: { type: "string", description: "Hora elegida por el cliente, en formato 24h HH:MM (ej 09:30). Si el cliente dijo solo '10', '10 am' o '9 y media', conviértela tú: 10:00, 10:00, 09:30." },
         cliente: { type: "string", description: "Nombre del cliente" },
         codigo_servicio: { type: "string", description: "Código del servicio, ej. TAL-002" },
         modelo: { type: "string", description: "Modelo de la moto, ej. CB 125F, Dio, XR 150L" },
@@ -171,7 +207,11 @@ export async function ejecutarHerramientaTaller(nombre, input, telefonoWa) {
         servicio: serv.nombre,
         hay_espacio: true,
         horarios_disponibles: horarios,
-        nota: "Ofrécele al cliente 3 o 4 de estos horarios para que elija. No le menciones cuánto dura el servicio.",
+        horarios_en_palabras: horarios.map(horaEnPalabras),
+        nota:
+          "Ofrécele al cliente estos horarios escritos en palabras (ej: '9:00, 9:30 o 10:00 de la mañana'). " +
+          "Si el cliente responde solo un número ('10', '9 y media', 'a las 9'), eso ES la hora elegida: no le pidas que la repita; " +
+          "conviértela tú al formato 24h (10 → 10:00, 9 y media → 09:30) y agenda. No le menciones cuánto dura el servicio.",
       };
     }
 
@@ -184,13 +224,18 @@ export async function ejecutarHerramientaTaller(nombre, input, telefonoWa) {
         p_servicio_id: serv.id,
       });
       const horarios = disp?.horarios || [];
-      if (!disp?.abierto || !horarios.includes(input.hora)) {
+      const horaNorm = normalizarHora(input.hora);
+      if (!disp?.abierto || !horaNorm || !horarios.includes(horaNorm)) {
         return {
-          error: "Ese horario ya no está disponible.",
+          error: horaNorm
+            ? `El horario ${horaNorm} no está disponible ese día.`
+            : `No entendí la hora "${input.hora}". Pídele al cliente que confirme una de las horas disponibles.`,
           horarios_disponibles: horarios,
+          horarios_en_palabras: horarios.map(horaEnPalabras),
           nota: "Ofrécele al cliente los horarios que sí están disponibles.",
         };
       }
+      input.hora = horaNorm;
       const { holgura } = await configTaller();
       const { data, error } = await taller
         .from("citas")
